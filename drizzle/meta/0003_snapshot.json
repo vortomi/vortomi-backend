@@ -1,0 +1,1100 @@
+{
+  "id": "79a4bd98-faf0-41ed-93da-415b014ed20d",
+  "prevId": "c0a94227-6edd-4cb7-b445-4090555a4073",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.membership_channels": {
+      "name": "membership_channels",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_account_id": {
+          "name": "channel_account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "membership_channels_membership_fk": {
+          "name": "membership_channels_membership_fk",
+          "tableFrom": "membership_channels",
+          "columnsFrom": [
+            "tenant_id",
+            "user_id"
+          ],
+          "tableTo": "memberships",
+          "columnsTo": [
+            "tenant_id",
+            "user_id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "membership_channels_channel_fk": {
+          "name": "membership_channels_channel_fk",
+          "tableFrom": "membership_channels",
+          "columnsFrom": [
+            "tenant_id",
+            "channel_account_id"
+          ],
+          "tableTo": "channel_accounts",
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "membership_channels_pkey": {
+          "name": "membership_channels_pkey",
+          "columns": [
+            "tenant_id",
+            "user_id",
+            "channel_account_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.memberships": {
+      "name": "memberships",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'invited'"
+        },
+        "can_see_others": {
+          "name": "can_see_others",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "memberships_user_idx": {
+          "name": "memberships_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
+        }
+      },
+      "foreignKeys": {
+        "memberships_tenant_id_tenants_id_fk": {
+          "name": "memberships_tenant_id_tenants_id_fk",
+          "tableFrom": "memberships",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "tableTo": "tenants",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        },
+        "memberships_user_id_users_id_fk": {
+          "name": "memberships_user_id_users_id_fk",
+          "tableFrom": "memberships",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "memberships_pkey": {
+          "name": "memberships_pkey",
+          "columns": [
+            "tenant_id",
+            "user_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "memberships_role_check": {
+          "name": "memberships_role_check",
+          "value": "\"memberships\".\"role\" in ('admin', 'agent')"
+        },
+        "memberships_status_check": {
+          "name": "memberships_status_check",
+          "value": "\"memberships\".\"status\" in ('invited', 'active', 'disabled')"
+        },
+        "memberships_admin_sees_all_check": {
+          "name": "memberships_admin_sees_all_check",
+          "value": "\"memberships\".\"role\" <> 'admin' or \"memberships\".\"can_see_others\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform_role": {
+          "name": "platform_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_email_unique": {
+          "name": "users_email_unique",
+          "columns": [
+            "email"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "users_email_check": {
+          "name": "users_email_check",
+          "value": "\"users\".\"email\" = lower(\"users\".\"email\") and \"users\".\"email\" like '%_@_%'"
+        },
+        "users_platform_role_check": {
+          "name": "users_platform_role_check",
+          "value": "\"users\".\"platform_role\" in ('super_admin')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.contacts": {
+      "name": "contacts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_account_id": {
+          "name": "channel_account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wa_id": {
+          "name": "wa_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_inbound_at": {
+          "name": "last_inbound_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "contacts_channel_fk": {
+          "name": "contacts_channel_fk",
+          "tableFrom": "contacts",
+          "columnsFrom": [
+            "tenant_id",
+            "channel_account_id"
+          ],
+          "tableTo": "channel_accounts",
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "contacts_tenant_id_id_key": {
+          "name": "contacts_tenant_id_id_key",
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "nullsNotDistinct": false
+        },
+        "contacts_tenant_channel_wa_id_key": {
+          "name": "contacts_tenant_channel_wa_id_key",
+          "columns": [
+            "tenant_id",
+            "channel_account_id",
+            "wa_id"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "contacts_wa_id_check": {
+          "name": "contacts_wa_id_check",
+          "value": "\"contacts\".\"wa_id\" ~ '^[0-9]+$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.conversations": {
+      "name": "conversations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "assigned_user_id": {
+          "name": "assigned_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "last_activity_at": {
+          "name": "last_activity_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "conversations_tenant_activity_idx": {
+          "name": "conversations_tenant_activity_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "last_activity_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
+        }
+      },
+      "foreignKeys": {
+        "conversations_contact_fk": {
+          "name": "conversations_contact_fk",
+          "tableFrom": "conversations",
+          "columnsFrom": [
+            "tenant_id",
+            "contact_id"
+          ],
+          "tableTo": "contacts",
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        },
+        "conversations_assignee_fk": {
+          "name": "conversations_assignee_fk",
+          "tableFrom": "conversations",
+          "columnsFrom": [
+            "tenant_id",
+            "assigned_user_id"
+          ],
+          "tableTo": "memberships",
+          "columnsTo": [
+            "tenant_id",
+            "user_id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "conversations_tenant_id_id_key": {
+          "name": "conversations_tenant_id_id_key",
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "nullsNotDistinct": false
+        },
+        "conversations_tenant_contact_key": {
+          "name": "conversations_tenant_contact_key",
+          "columns": [
+            "tenant_id",
+            "contact_id"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "conversations_status_check": {
+          "name": "conversations_status_check",
+          "value": "\"conversations\".\"status\" in ('open', 'resolved')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.message_status_events": {
+      "name": "message_status_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "name": "message_status_events_id_seq",
+            "increment": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "startWith": "1",
+            "cache": "1",
+            "cycle": false,
+            "schema": "public",
+            "type": "always"
+          }
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wa_message_id": {
+          "name": "wa_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pricing_category": {
+          "name": "pricing_category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "billable": {
+          "name": "billable",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_text": {
+          "name": "error_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "message_status_events_tenant_id_tenants_id_fk": {
+          "name": "message_status_events_tenant_id_tenants_id_fk",
+          "tableFrom": "message_status_events",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "tableTo": "tenants",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "message_status_events_dedup_key": {
+          "name": "message_status_events_dedup_key",
+          "columns": [
+            "tenant_id",
+            "wa_message_id",
+            "status"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "message_status_events_status_check": {
+          "name": "message_status_events_status_check",
+          "value": "\"message_status_events\".\"status\" in ('sent', 'delivered', 'read', 'failed')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.messages": {
+      "name": "messages",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "name": "messages_id_seq",
+            "increment": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "startWith": "1",
+            "cache": "1",
+            "cycle": false,
+            "schema": "public",
+            "type": "always"
+          }
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wa_message_id": {
+          "name": "wa_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "direction": {
+          "name": "direction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "author": {
+          "name": "author",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wa_media_id": {
+          "name": "wa_media_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wa_timestamp": {
+          "name": "wa_timestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "messages_conversation_created_idx": {
+          "name": "messages_conversation_created_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
+        }
+      },
+      "foreignKeys": {
+        "messages_conversation_fk": {
+          "name": "messages_conversation_fk",
+          "tableFrom": "messages",
+          "columnsFrom": [
+            "tenant_id",
+            "conversation_id"
+          ],
+          "tableTo": "conversations",
+          "columnsTo": [
+            "tenant_id",
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "messages_tenant_wa_message_id_key": {
+          "name": "messages_tenant_wa_message_id_key",
+          "columns": [
+            "tenant_id",
+            "wa_message_id"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "messages_direction_check": {
+          "name": "messages_direction_check",
+          "value": "\"messages\".\"direction\" in ('in', 'out')"
+        },
+        "messages_author_check": {
+          "name": "messages_author_check",
+          "value": "\"messages\".\"author\" in ('customer', 'staff', 'bot', 'owner_app')"
+        },
+        "messages_type_check": {
+          "name": "messages_type_check",
+          "value": "\"messages\".\"type\" in ('text', 'image', 'audio', 'video', 'document', 'sticker', 'location', 'contacts', 'interactive', 'button', 'reaction', 'template', 'unsupported')"
+        },
+        "messages_author_direction_check": {
+          "name": "messages_author_direction_check",
+          "value": "(\"messages\".\"direction\" = 'in') = (\"messages\".\"author\" = 'customer')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.channel_accounts": {
+      "name": "channel_accounts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "waba_id": {
+          "name": "waba_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phone_number_id": {
+          "name": "phone_number_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_number": {
+          "name": "display_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'connected'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "channel_accounts_tenant_idx": {
+          "name": "channel_accounts_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
+        }
+      },
+      "foreignKeys": {
+        "channel_accounts_tenant_id_tenants_id_fk": {
+          "name": "channel_accounts_tenant_id_tenants_id_fk",
+          "tableFrom": "channel_accounts",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "tableTo": "tenants",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "channel_accounts_phone_number_id_unique": {
+          "name": "channel_accounts_phone_number_id_unique",
+          "columns": [
+            "phone_number_id"
+          ],
+          "nullsNotDistinct": false
+        },
+        "channel_accounts_tenant_id_id_key": {
+          "name": "channel_accounts_tenant_id_id_key",
+          "columns": [
+            "tenant_id",
+            "id"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "channel_accounts_status_check": {
+          "name": "channel_accounts_status_check",
+          "value": "\"channel_accounts\".\"status\" in ('connected', 'disconnected', 'restricted')"
+        },
+        "channel_accounts_phone_number_id_check": {
+          "name": "channel_accounts_phone_number_id_check",
+          "value": "\"channel_accounts\".\"phone_number_id\" ~ '^[0-9]+$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.tenants": {
+      "name": "tenants",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "plan": {
+          "name": "plan",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "timezone": {
+          "name": "timezone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'America/Caracas'"
+        },
+        "legal_name": {
+          "name": "legal_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tax_id": {
+          "name": "tax_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fiscal_address": {
+          "name": "fiscal_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "tenants_slug_unique": {
+          "name": "tenants_slug_unique",
+          "columns": [
+            "slug"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "tenants_status_check": {
+          "name": "tenants_status_check",
+          "value": "\"tenants\".\"status\" in ('draft', 'awaiting_channel', 'active', 'suspended', 'cancelled')"
+        },
+        "tenants_plan_check": {
+          "name": "tenants_plan_check",
+          "value": "\"tenants\".\"plan\" in ('internal', 'basic', 'team')"
+        },
+        "tenants_tax_id_check": {
+          "name": "tenants_tax_id_check",
+          "value": "\"tenants\".\"tax_id\" ~ '^[JVEGPC]-[0-9]{8}-[0-9]$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.webhook_events": {
+      "name": "webhook_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "name": "webhook_events_id_seq",
+            "increment": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "startWith": "1",
+            "cache": "1",
+            "cycle": false,
+            "schema": "public",
+            "type": "always"
+          }
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "webhook_events_pending_idx": {
+          "name": "webhook_events_pending_idx",
+          "columns": [
+            {
+              "expression": "received_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "where": "\"webhook_events\".\"processed_at\" is null",
+          "concurrently": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "webhook_events_attempts_check": {
+          "name": "webhook_events_attempts_check",
+          "value": "\"webhook_events\".\"attempts\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "views": {
+    "public.message_delivery_status": {
+      "name": "message_delivery_status",
+      "schema": "public",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wa_message_id": {
+          "name": "wa_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "materialized": false,
+      "isExisting": true
+    }
+  },
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
