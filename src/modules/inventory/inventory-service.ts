@@ -71,7 +71,7 @@ export class InventoryService {
   async list(scope: MemberScope) {
     const [items, variants] = await Promise.all([
       scope.tx
-        .select({ id: products.id, name: products.name, category: products.category, description: products.description, stockMode: products.stockMode, active: products.active })
+        .select({ id: products.id, name: products.name, category: products.category, description: products.description, stockMode: products.stockMode, active: products.active, createdAt: products.createdAt })
         .from(products)
         .where(eq(products.tenantId, scope.tenantId))
         .orderBy(asc(products.name)),

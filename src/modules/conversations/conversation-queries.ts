@@ -112,6 +112,7 @@ export class ConversationQueries {
         authorUserId: messages.authorUserId,
         type: messages.type,
         body: messages.body,
+        templateId: messages.templateId,
         createdAt: messages.createdAt,
         clientMessageId: messages.clientMessageId,
         // Furthest status Meta reported; before that, failed (never reached Meta) or pending.
