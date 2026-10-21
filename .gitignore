@@ -5,3 +5,7 @@ coverage/
 .env.*
 !.env.example
 *.log
+
+# IDEs and editors (personal settings)
+.idea/
+.vscode/

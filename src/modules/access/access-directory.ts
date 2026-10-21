@@ -1,6 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm'
 import type { Database } from '../../db/client.ts'
-import type { MemberRole, PlatformRole, TenantStatus } from '../../db/schema/enums.ts'
+import type { MemberRole, PlatformRole, TenantPlan, TenantStatus } from '../../db/schema/enums.ts'
 import { memberships, tenants, users } from '../../db/schema/index.ts'
 
 export interface AccountRecord {
@@ -13,7 +13,11 @@ export interface AccountRecord {
 export interface CompanyAccess {
   tenantId: string
   name: string
+  slug: string
   tenantStatus: TenantStatus
+  plan: TenantPlan
+  /** Reports, hours and the 24 h window are shown in the company's own zone. */
+  timezone: string
   role: MemberRole
 }
 
@@ -36,7 +40,15 @@ export class AccessDirectory {
   /** The companies this person can enter right now (active memberships only). */
   async companiesOf(userId: string): Promise<CompanyAccess[]> {
     return this.db
-      .select({ tenantId: tenants.id, name: tenants.name, tenantStatus: tenants.status, role: memberships.role })
+      .select({
+        tenantId: tenants.id,
+        name: tenants.name,
+        slug: tenants.slug,
+        tenantStatus: tenants.status,
+        plan: tenants.plan,
+        timezone: tenants.timezone,
+        role: memberships.role,
+      })
       .from(memberships)
       .innerJoin(tenants, eq(tenants.id, memberships.tenantId))
       .where(and(eq(memberships.userId, userId), eq(memberships.status, 'active')))

@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     ),
   })
   const body = JSON.stringify(payloadFor(positionals[0] ?? '', values))
-  const url = values['url'] ?? `http://localhost:${process.env.PORT ?? '3000'}/webhooks/whatsapp`
+  const url = values['url'] ?? `http://127.0.0.1:${process.env.PORT ?? '3100'}/webhooks/whatsapp`
   const signature = `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`
 
   const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': signature }, body })

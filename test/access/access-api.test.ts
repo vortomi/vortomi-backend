@@ -59,6 +59,7 @@ describe('signing in', () => {
 
   it('lists only the companies the person is active in', async () => {
     const valeria = (await get('/api/me', people.valeria)).json<{ companies: { name: string; role: string }[] }>()
+    expect(valeria.companies[0]).toMatchObject({ slug: 'empresa-a', plan: 'team', timezone: 'America/Caracas', tenantStatus: 'active' })
     expect(valeria.companies.map((c) => [c.name, c.role])).toEqual([
       ['Empresa A', 'agent'],
       ['Empresa B', 'admin'],
