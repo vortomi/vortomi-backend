@@ -68,7 +68,9 @@ export class IngestService {
       // again) and moves it up the inbox; a replayed webhook changes nothing.
       await tx
         .update(conversations)
-        .set({ status: 'open', lastActivityAt: sql`greatest(${conversations.lastActivityAt}, ${event.timestamp})` })
+        // A Date inside raw sql`` is not typed by a column: postgres-js would send its local
+        // text form ("... hora de Venezuela"), which Postgres rejects. ISO plus an explicit cast.
+        .set({ status: 'open', lastActivityAt: sql`greatest(${conversations.lastActivityAt}, ${event.timestamp.toISOString()}::timestamptz)` })
         .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversation.id)))
     }
     return { isNew, contactId: contact.id, conversationId: conversation.id }
