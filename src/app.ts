@@ -21,6 +21,14 @@ export interface AppDependencies {
 /** Secrets and signatures must never reach the logs. */
 export const LOG_REDACT_PATHS = ['req.headers.authorization', 'req.headers["x-hub-signature-256"]', 'req.headers.cookie']
 
+/** Query parameters that carry a secret: Meta sends the verify token in the URL. */
+const SECRET_QUERY_PARAMS = /([?&]hub[._]verify_token=)[^&]*/gi
+
+/** The request URL as it may be logged: secrets in the query string replaced. */
+export function redactUrl(url: string): string {
+  return url.replace(SECRET_QUERY_PARAMS, '$1[Redacted]')
+}
+
 /** HTTP surface only. Wiring of services lives in main.ts. */
 export async function buildApp(deps: AppDependencies, logger: FastifyServerOptions['logger']): Promise<FastifyInstance> {
   const app = Fastify({

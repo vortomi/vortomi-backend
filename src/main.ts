@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { LOG_REDACT_PATHS, buildApp } from './app.ts'
+import { LOG_REDACT_PATHS, buildApp, redactUrl } from './app.ts'
 import { loadEnv } from './config/env.ts'
 import { createDatabase } from './db/client.ts'
 import { SupabaseTokenVerifier } from './modules/access/supabase-token-verifier.ts'
@@ -28,6 +28,15 @@ async function main(): Promise<void> {
   const logger = {
     level: env.LOG_LEVEL,
     redact: LOG_REDACT_PATHS,
+    serializers: {
+      // Fastify's default request fields, with the URL cleaned of secrets.
+      req: (request: { method: string; url: string; hostname?: string; ip?: string }) => ({
+        method: request.method,
+        url: redactUrl(request.url),
+        hostname: request.hostname,
+        remoteAddress: request.ip,
+      }),
+    },
     ...(env.NODE_ENV === 'development' ? { transport: { target: 'pino-pretty' } } : {}),
   }
 
