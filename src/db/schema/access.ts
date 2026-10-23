@@ -89,14 +89,16 @@ export const invitations = pgTable(
     channelAccountIds: uuid('channel_account_ids').array().notNull().default(sql`'{}'::uuid[]`),
     tokenHash: text('token_hash').notNull().unique(),
     expiresAt: timestamptz('expires_at').notNull(),
-    invitedBy: uuid('invited_by').notNull(),
+    // A company admin, or someone of our team inviting the first admin from the console.
+    invitedBy: uuid('invited_by')
+      .notNull()
+      .references(() => users.id),
     acceptedAt: timestamptz('accepted_at'),
     acceptedBy: uuid('accepted_by'),
     revokedAt: timestamptz('revoked_at'),
     createdAt: createdAtColumn(),
   },
   (t) => [
-    foreignKey({ name: 'invitations_invited_by_fk', columns: [t.tenantId, t.invitedBy], foreignColumns: [memberships.tenantId, memberships.userId] }),
     // One open invitation per person and company.
     uniqueIndex('invitations_open_email_key')
       .on(t.tenantId, t.email)

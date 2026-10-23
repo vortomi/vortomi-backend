@@ -54,6 +54,7 @@ async function main(): Promise<void> {
       credentials,
       sender: cloudApi,
       templateRegistry: cloudApi,
+      wabaDirectory: cloudApi,
       onVerifiedPayload: async (payload) => {
         await inbox.receive(payload)
       },

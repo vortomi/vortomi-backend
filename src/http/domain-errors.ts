@@ -1,9 +1,10 @@
-import { NotAMemberError } from '../modules/access/member-scope.ts'
+import { CompanyUnavailableError, NotAMemberError } from '../modules/access/member-scope.ts'
 import { CategoryNotFoundError } from '../modules/inventory/category-service.ts'
 import { InvalidVariantError, InventoryNotFoundError, MovementNotAllowedError } from '../modules/inventory/inventory-service.ts'
 import { VariantOptionNotFoundError, VariantTypeNotFoundError } from '../modules/inventory/variant-type-service.ts'
 import { ContactNotFoundError, UnknownTagError } from '../modules/contacts/contact-service.ts'
 import { TagNotFoundError } from '../modules/contacts/tag-service.ts'
+import { NoChannelError, TenantNotFoundError, WabaTakenError } from '../modules/platform/tenant-admin-service.ts'
 import { ChannelNotFoundError } from '../modules/team/channel-list.ts'
 import {
   AlreadyMemberError,
@@ -29,6 +30,7 @@ type ErrorClass = new (...args: never[]) => Error
  */
 const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [NotAMemberError, 403, 'not_a_member'],
+  [CompanyUnavailableError, 403, 'company_unavailable'],
   [TemplateAdminRequiredError, 403, 'admin_required'],
   [MovementNotAllowedError, 403, 'admin_required'],
   [InventoryNotFoundError, 404, 'inventory_item_not_found'],
@@ -37,6 +39,9 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [VariantOptionNotFoundError, 404, 'variant_option_not_found'],
   [InvalidVariantError, 422, 'invalid_variant'],
   [MemberNotFoundError, 404, 'member_not_found'],
+  [TenantNotFoundError, 404, 'tenant_not_found'],
+  [NoChannelError, 409, 'no_channel'],
+  [WabaTakenError, 409, 'waba_taken'],
   [ChannelNotFoundError, 404, 'channel_not_found'],
   [InvitationNotFoundError, 404, 'invitation_not_found'],
   [InvitationExpiredError, 410, 'invitation_expired'],
@@ -72,6 +77,7 @@ const CONSTRAINT_CONFLICTS: Record<string, string> = {
   invitations_open_email_key: 'invitation_exists',
   membership_channels_channel_fk: 'unknown_channel',
   users_email_unique: 'email_in_use',
+  channel_accounts_phone_number_id_unique: 'phone_number_taken',
   variant_types_tenant_name_key: 'variant_type_name_taken',
   variant_options_type_value_key: 'variant_option_taken',
   product_variants_product_option_key: 'variant_option_repeated',

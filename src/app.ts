@@ -4,7 +4,7 @@ import type { Database } from './db/client.ts'
 import { apiRoutes, publicApiRoutes } from './http/api.ts'
 import type { AccessTokenVerifier } from './modules/access/identity.ts'
 import type { ChannelCredentials } from './modules/channels/channel-credentials.ts'
-import type { TemplateRegistry, WhatsAppSender } from './modules/whatsapp/cloud-api.client.ts'
+import type { TemplateRegistry, WabaDirectory, WhatsAppSender } from './modules/whatsapp/cloud-api.client.ts'
 import { webhookRoutes } from './modules/whatsapp/webhook.routes.ts'
 
 export interface AppDependencies {
@@ -16,6 +16,7 @@ export interface AppDependencies {
   credentials: ChannelCredentials
   sender: WhatsAppSender
   templateRegistry: TemplateRegistry
+  wabaDirectory: WabaDirectory
 }
 
 /** Secrets and signatures must never reach the logs. */
@@ -66,6 +67,7 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     credentials: deps.credentials,
     sender: deps.sender,
     templateRegistry: deps.templateRegistry,
+    wabaDirectory: deps.wabaDirectory,
   })
 
   return app

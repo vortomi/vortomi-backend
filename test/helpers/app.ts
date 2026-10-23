@@ -4,7 +4,16 @@ import { type AppDependencies, buildApp } from '../../src/app.ts'
 import type { Database } from '../../src/db/client.ts'
 import { ChannelCredentials } from '../../src/modules/channels/channel-credentials.ts'
 import { CredentialCipher } from '../../src/modules/channels/credential-cipher.ts'
-import { type TemplateMessage, type TemplateRegistry, type TemplateSubmission, type TextMessage, WhatsAppApiError, type WhatsAppSender } from '../../src/modules/whatsapp/cloud-api.client.ts'
+import {
+  type TemplateMessage,
+  type TemplateRegistry,
+  type TemplateSubmission,
+  type TextMessage,
+  type WabaDirectory,
+  type WabaNumber,
+  WhatsAppApiError,
+  type WhatsAppSender,
+} from '../../src/modules/whatsapp/cloud-api.client.ts'
 import { testVerifier } from './auth.ts'
 import { APP_SECRET, VERIFY_TOKEN } from './meta-payloads.ts'
 
@@ -39,6 +48,22 @@ export class FakeRegistry implements TemplateRegistry {
   }
 }
 
+/** Stands in for Meta's account directory: the numbers a test puts in each account. */
+export class FakeWabaDirectory implements WabaDirectory {
+  readonly accounts = new Map<string, WabaNumber[]>()
+  readonly subscribed: string[] = []
+
+  listNumbers(wabaId: string): Promise<WabaNumber[]> {
+    const numbers = this.accounts.get(wabaId)
+    return numbers ? Promise.resolve(numbers) : Promise.reject(new WhatsAppApiError('Unknown account', 400, 100))
+  }
+
+  subscribeApp(wabaId: string): Promise<void> {
+    this.subscribed.push(wabaId)
+    return Promise.resolve()
+  }
+}
+
 export const testCredentials = (db: Database) => new ChannelCredentials(db, new CredentialCipher(randomBytes(32).toString('base64')))
 
 /** The real app with test doubles only at the edges: Supabase keys, Meta, the credential key. */
@@ -53,6 +78,7 @@ export function buildTestApp(db: Database, overrides: Partial<AppDependencies> =
       credentials: testCredentials(db),
       sender: new FakeSender(),
       templateRegistry: new FakeRegistry(),
+      wabaDirectory: new FakeWabaDirectory(),
       ...overrides,
     },
     false,

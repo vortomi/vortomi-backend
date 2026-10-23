@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import type { Database } from '../../db/client.ts'
 import type { MemberRole } from '../../db/schema/enums.ts'
-import { membershipChannels, memberships } from '../../db/schema/index.ts'
+import { membershipChannels, memberships, tenants } from '../../db/schema/index.ts'
 import { type TenantScope, withTenant } from '../tenancy/tenant-scope.ts'
 
 /** The caller's place in the company the request is about. */
@@ -15,6 +15,14 @@ export interface Member {
 
 export interface MemberScope extends TenantScope {
   readonly member: Member
+}
+
+/** The company exists but is not working: suspended (for example, unpaid) or cancelled. Its data is kept. */
+export class CompanyUnavailableError extends Error {
+  constructor() {
+    super('This company is not active')
+    this.name = 'CompanyUnavailableError'
+  }
 }
 
 export class NotAMemberError extends Error {
@@ -55,6 +63,9 @@ export async function withMember<T>(
   return withTenant(db, tenantId, async (scope) => {
     const member = await findActiveMember(scope, userId)
     if (!member) throw new NotAMemberError()
+    // Only after proving membership: an outsider learns nothing about the company's state.
+    const [tenant] = await scope.tx.select({ status: tenants.status }).from(tenants).where(eq(tenants.id, scope.tenantId))
+    if (tenant?.status !== 'active') throw new CompanyUnavailableError()
     return work({ ...scope, member })
   })
 }

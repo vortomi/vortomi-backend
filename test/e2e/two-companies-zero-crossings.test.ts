@@ -25,7 +25,7 @@ import {
   textChange,
   webhook,
 } from '../helpers/meta-payloads.ts'
-import { FakeRegistry, FakeSender, testCredentials } from '../helpers/app.ts'
+import { FakeRegistry, FakeWabaDirectory, FakeSender, testCredentials } from '../helpers/app.ts'
 import { testVerifier } from '../helpers/auth.ts'
 import { createTestDatabase, type TestDatabase } from '../helpers/test-db.ts'
 import { seedTwoTenants, type SeededTenant } from '../helpers/tenants.ts'
@@ -47,7 +47,7 @@ beforeAll(async () => {
   queue = new SerialQueue((id) => processor.process(id), () => undefined)
   const inbox = new WebhookInbox(repository, queue, { maxAttempts: 5, sweepGraceMs: 0, sweepBatchSize: 50 })
   app = await buildApp(
-    { db: t.db, verifyToken: VERIFY_TOKEN, appSecret: APP_SECRET, onVerifiedPayload: async (payload) => void (await inbox.receive(payload)), tokenVerifier: testVerifier(), credentials: testCredentials(t.db), sender: new FakeSender(), templateRegistry: new FakeRegistry() },
+    { db: t.db, verifyToken: VERIFY_TOKEN, appSecret: APP_SECRET, onVerifiedPayload: async (payload) => void (await inbox.receive(payload)), tokenVerifier: testVerifier(), credentials: testCredentials(t.db), sender: new FakeSender(), templateRegistry: new FakeRegistry(), wabaDirectory: new FakeWabaDirectory() },
     false,
   )
 })

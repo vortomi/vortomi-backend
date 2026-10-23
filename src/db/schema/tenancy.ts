@@ -18,6 +18,9 @@ export const tenants = pgTable(
     // Venezuelan RIF, normalised: J-41234567-8.
     taxId: text('tax_id').notNull(),
     fiscalAddress: text('fiscal_address').notNull(),
+    // Shown in the console and used to suggest the WhatsApp profile category.
+    industry: text('industry').notNull().default(''),
+    city: text('city').notNull().default(''),
     createdAt: createdAtColumn(),
   },
   (t) => [

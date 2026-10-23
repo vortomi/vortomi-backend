@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import type { Database } from '../../db/client.ts'
+import type { Database, Executor } from '../../db/client.ts'
 import { MEMBER_ROLES } from '../../db/schema/enums.ts'
 import { channelAccounts, invitations, membershipChannels, memberships, tenants, users } from '../../db/schema/index.ts'
 import type { MemberScope } from '../access/member-scope.ts'
@@ -81,26 +81,44 @@ export class InvitationService {
   constructor(private readonly db: Database) {}
 
   list(scope: MemberScope) {
-    return scope.tx
-      .select(listColumns)
-      .from(invitations)
-      .where(and(eq(invitations.tenantId, scope.tenantId), open))
-      .orderBy(asc(invitations.createdAt))
+    return this.listIn(scope.tx, scope.tenantId)
   }
 
   /** The token comes back only here and on renew: it is what the link carries. */
-  async create(scope: MemberScope, input: InvitationInput) {
-    const { tx, tenantId } = scope
-    const [member] = await tx
+  create(scope: MemberScope, input: InvitationInput) {
+    return this.createIn(scope.tx, scope.tenantId, input, scope.member.userId)
+  }
+
+  renew(scope: MemberScope, id: string) {
+    return this.renewIn(scope.tx, scope.tenantId, id)
+  }
+
+  revoke(scope: MemberScope, id: string) {
+    return this.revokeIn(scope.tx, scope.tenantId, id)
+  }
+
+  // The *In methods take who runs the query: a company's transaction (above, under RLS) or
+  // the server's own connection for our team's console (platform), always with the company id.
+
+  listIn(exec: Executor, tenantId: string) {
+    return exec
+      .select(listColumns)
+      .from(invitations)
+      .where(and(eq(invitations.tenantId, tenantId), open))
+      .orderBy(asc(invitations.createdAt))
+  }
+
+  async createIn(exec: Executor, tenantId: string, input: InvitationInput, invitedBy: string) {
+    const [member] = await exec
       .select({ status: memberships.status })
       .from(memberships)
       .innerJoin(users, eq(users.id, memberships.userId))
       .where(and(eq(memberships.tenantId, tenantId), eq(users.email, input.email)))
     if (member?.status === 'active') throw new AlreadyMemberError()
-    await this.assertChannels(scope, input.channelAccountIds)
+    await this.assertChannels(exec, tenantId, input.channelAccountIds)
 
     const token = newToken()
-    const [row] = await tx
+    const [row] = await exec
       .insert(invitations)
       .values({
         tenantId,
@@ -109,29 +127,29 @@ export class InvitationService {
         canSeeOthers: input.role === 'admin' || input.canSeeOthers,
         tokenHash: hashOf(token),
         expiresAt: expiry(),
-        invitedBy: scope.member.userId,
+        invitedBy,
       })
       .returning(listColumns)
     return { ...row!, token }
   }
 
   /** A fresh link and 72 more hours; the old link stops working. */
-  async renew(scope: MemberScope, id: string) {
+  async renewIn(exec: Executor, tenantId: string, id: string) {
     const token = newToken()
-    const [row] = await scope.tx
+    const [row] = await exec
       .update(invitations)
       .set({ tokenHash: hashOf(token), expiresAt: expiry() })
-      .where(and(eq(invitations.tenantId, scope.tenantId), eq(invitations.id, id), open))
+      .where(and(eq(invitations.tenantId, tenantId), eq(invitations.id, id), open))
       .returning(listColumns)
     if (!row) throw new InvitationNotFoundError()
     return { ...row, token }
   }
 
-  async revoke(scope: MemberScope, id: string) {
-    const revoked = await scope.tx
+  async revokeIn(exec: Executor, tenantId: string, id: string) {
+    const revoked = await exec
       .update(invitations)
       .set({ revokedAt: sql`now()` })
-      .where(and(eq(invitations.tenantId, scope.tenantId), eq(invitations.id, id), open))
+      .where(and(eq(invitations.tenantId, tenantId), eq(invitations.id, id), open))
       .returning({ id: invitations.id })
     if (!revoked.length) throw new InvitationNotFoundError()
   }
@@ -196,12 +214,12 @@ export class InvitationService {
     })
   }
 
-  private async assertChannels(scope: MemberScope, ids: string[]): Promise<void> {
+  private async assertChannels(exec: Executor, tenantId: string, ids: string[]): Promise<void> {
     if (!ids.length) return
-    const found = await scope.tx
+    const found = await exec
       .select({ id: channelAccounts.id })
       .from(channelAccounts)
-      .where(and(eq(channelAccounts.tenantId, scope.tenantId), inArray(channelAccounts.id, ids)))
+      .where(and(eq(channelAccounts.tenantId, tenantId), inArray(channelAccounts.id, ids)))
     if (found.length !== new Set(ids).size) throw new UnknownChannelError()
   }
 }

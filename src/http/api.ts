@@ -18,7 +18,7 @@ import { inventoryRoutes } from '../modules/inventory/inventory.routes.ts'
 import { UsageService } from '../modules/usage/usage-service.ts'
 import { usageRoutes } from '../modules/usage/usage.routes.ts'
 import { platformRoutes } from '../modules/platform/platform.routes.ts'
-import { TenantCatalog } from '../modules/platform/tenant-catalog.ts'
+import { TenantAdminService } from '../modules/platform/tenant-admin-service.ts'
 import { InvitationService } from '../modules/team/invitation-service.ts'
 import { invitationRoutes, publicInvitationRoutes } from '../modules/team/invitation.routes.ts'
 import { TeamService } from '../modules/team/team-service.ts'
@@ -29,7 +29,7 @@ import { SettingsService } from '../modules/workspace/settings-service.ts'
 import { workspaceRoutes } from '../modules/workspace/workspace.routes.ts'
 import { TemplateService } from '../modules/templates/template-service.ts'
 import { templateRoutes } from '../modules/templates/templates.routes.ts'
-import type { TemplateRegistry, WhatsAppSender } from '../modules/whatsapp/cloud-api.client.ts'
+import type { TemplateRegistry, WabaDirectory, WhatsAppSender } from '../modules/whatsapp/cloud-api.client.ts'
 import { authenticate } from './authenticate.ts'
 import { toApiError } from './domain-errors.ts'
 import { installErrorHandler } from './errors.ts'
@@ -40,6 +40,7 @@ export interface ApiOptions {
   credentials: ChannelCredentials
   sender: WhatsAppSender
   templateRegistry: TemplateRegistry
+  wabaDirectory: WabaDirectory
 }
 
 const COMPANY = '/tenants/:tenantId'
@@ -57,7 +58,7 @@ export const publicApiRoutes: FastifyPluginAsync<{ db: Database }> = async (app,
  * The panel's API (/api). Everything in here requires a verified Supabase session;
  * company data is only reached through inCompany() (membership + withTenant).
  */
-export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry }) => {
+export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory }) => {
   installErrorHandler(app, toApiError)
   app.decorateRequest('identity', null)
   app.addHook('onRequest', authenticate(verifier))
@@ -67,7 +68,9 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
 
   await app.register(accessRoutes, { db, directory })
   const usage = new UsageService()
-  await app.register(platformRoutes, { prefix: '/platform', directory, catalog: new TenantCatalog(db), db, usage })
+  const invitations = new InvitationService(db)
+  const tenantAdmin = new TenantAdminService(db, invitations, credentials, wabaDirectory)
+  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage })
   await app.register(usageRoutes, { prefix: COMPANY, db, usage })
   await app.register(conversationRoutes, {
     prefix: `${COMPANY}/conversations`,
@@ -82,7 +85,6 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   const categories = new CategoryService()
   const variantTypes = new VariantTypeService()
   await app.register(inventoryRoutes, { prefix: COMPANY, db, inventory: new InventoryService(categories, variantTypes), categories, variantTypes })
-  const invitations = new InvitationService(db)
   await app.register(teamRoutes, { prefix: COMPANY, db, team: new TeamService(), invitations })
   await app.register(invitationRoutes, { invitations })
   await app.register(workspaceRoutes, {

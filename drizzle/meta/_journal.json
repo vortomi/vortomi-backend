@@ -148,6 +148,13 @@
       "when": 1792788155207,
       "tag": "0020_invitations_security",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792794357478,
+      "tag": "0021_console",
+      "breakpoints": true
     }
   ]
 }

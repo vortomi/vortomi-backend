@@ -118,6 +118,9 @@ describe('platform console', () => {
     expect(response.statusCode).toBe(200)
     const { tenants } = response.json<{ tenants: Record<string, unknown>[] }>()
     expect(tenants.map((tenant) => tenant['name'])).toEqual(['Empresa A', 'Empresa B'])
-    expect(Object.keys(tenants[0]!).sort()).toEqual(['createdAt', 'id', 'name', 'plan', 'status'])
+    // Company data, numbers and a head count: nothing of conversations, contacts or messages.
+    expect(Object.keys(tenants[0]!).sort()).toEqual([
+      'channels', 'city', 'createdAt', 'fiscalAddress', 'id', 'industry', 'legalName', 'memberCount', 'name', 'plan', 'slug', 'status', 'taxId', 'timezone',
+    ])
   })
 })
