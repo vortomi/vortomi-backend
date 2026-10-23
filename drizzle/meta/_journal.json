@@ -120,6 +120,34 @@
       "when": 1792678417606,
       "tag": "0016_inventory_categories_drop_text",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792786741447,
+      "tag": "0017_inventory_variant_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792786743640,
+      "tag": "0018_inventory_variant_types_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792788153074,
+      "tag": "0019_invitations",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792788155207,
+      "tag": "0020_invitations_security",
+      "breakpoints": true
     }
   ]
 }

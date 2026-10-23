@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
-import { boolean, check, foreignKey, index, pgTable, primaryKey, text, uuid } from 'drizzle-orm/pg-core'
-import { createdAtColumn, oneOf, tenantIdColumn } from './columns.ts'
+import { boolean, check, foreignKey, index, pgTable, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { createdAtColumn, oneOf, tenantIdColumn, timestamptz, uuidIdColumn } from './columns.ts'
 import { MEMBER_ROLES, MEMBERSHIP_STATUSES, PLATFORM_ROLES } from './enums.ts'
 import { channelAccounts, tenants } from './tenancy.ts'
 
@@ -68,5 +68,42 @@ export const membershipChannels = pgTable(
       columns: [t.tenantId, t.channelAccountId],
       foreignColumns: [channelAccounts.tenantId, channelAccounts.id],
     }),
+  ],
+)
+
+/**
+ * An invitation to join a company (documentations/03). The link carries a random token;
+ * only its SHA-256 is stored, so a copy of the database opens nothing. Who the person will
+ * be (role, numbers) waits here until they accept with their own account.
+ */
+export const invitations = pgTable(
+  'invitations',
+  {
+    id: uuidIdColumn(),
+    tenantId: tenantIdColumn().references(() => tenants.id),
+    email: text('email').notNull(),
+    name: text('name').notNull(),
+    role: text('role', { enum: MEMBER_ROLES }).notNull(),
+    canSeeOthers: boolean('can_see_others').notNull().default(false),
+    // Checked against the company's numbers when created and again when accepted.
+    channelAccountIds: uuid('channel_account_ids').array().notNull().default(sql`'{}'::uuid[]`),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamptz('expires_at').notNull(),
+    invitedBy: uuid('invited_by').notNull(),
+    acceptedAt: timestamptz('accepted_at'),
+    acceptedBy: uuid('accepted_by'),
+    revokedAt: timestamptz('revoked_at'),
+    createdAt: createdAtColumn(),
+  },
+  (t) => [
+    foreignKey({ name: 'invitations_invited_by_fk', columns: [t.tenantId, t.invitedBy], foreignColumns: [memberships.tenantId, memberships.userId] }),
+    // One open invitation per person and company.
+    uniqueIndex('invitations_open_email_key')
+      .on(t.tenantId, t.email)
+      .where(sql`${t.acceptedAt} is null and ${t.revokedAt} is null`),
+    check('invitations_email_check', sql`${t.email} = lower(${t.email}) and ${t.email} like '%_@_%'`),
+    check('invitations_name_check', sql`length(trim(${t.name})) between 1 and 80`),
+    check('invitations_role_check', oneOf(t.role, MEMBER_ROLES)),
+    check('invitations_admin_sees_all_check', sql`${t.role} <> 'admin' or ${t.canSeeOthers}`),
   ],
 )

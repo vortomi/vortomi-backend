@@ -4,6 +4,7 @@ import { STOCK_MODES, STOCK_MOVEMENT_KINDS, type StockMovementKind } from '../..
 import { productCategories, productVariants, products, stockMovements } from '../../db/schema/index.ts'
 import type { MemberScope } from '../access/member-scope.ts'
 import type { CategoryService } from './category-service.ts'
+import type { VariantTypeService } from './variant-type-service.ts'
 
 export class InventoryNotFoundError extends Error {
   constructor() {
@@ -19,10 +20,20 @@ export class MovementNotAllowedError extends Error {
   }
 }
 
+/** A variant that does not fit its product's type: an option missing, or one where none is used. */
+export class InvalidVariantError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'InvalidVariantError'
+  }
+}
+
 const money = z.number().int().min(0).max(2_000_000_000)
 
 export const variantInput = z.object({
-  name: z.string().trim().min(1).max(80),
+  // With a variant type the name comes from the option; without one it is typed ("Única").
+  optionId: z.uuid().nullable().default(null),
+  name: z.string().trim().max(80).default(''),
   sku: z.string().trim().min(1).max(60),
   priceCents: money,
   available: z.boolean().default(true),
@@ -35,6 +46,8 @@ export const productInput = z.object({
   name: z.string().trim().min(1).max(120),
   // One of the company's categories (category-service); null while it has none.
   categoryId: z.uuid().nullable().default(null),
+  // One of the company's variant types (variant-type-service); null: variants named freely.
+  variantTypeId: z.uuid().nullable().default(null),
   description: z.string().trim().max(2000).default(''),
   stockMode: z.enum(STOCK_MODES),
   variants: z.array(variantInput).min(1).max(50),
@@ -43,7 +56,8 @@ export type ProductInput = z.infer<typeof productInput>
 type VariantInput = z.infer<typeof variantInput>
 
 /** What can change once a product exists. The stock mode cannot: its history is counted one way. */
-export const productUpdate = productInput.pick({ name: true, categoryId: true, description: true })
+/** The type can change only while no variant uses one of its values (product_variants_product_type_fk). */
+export const productUpdate = productInput.pick({ name: true, categoryId: true, variantTypeId: true, description: true })
 export type ProductUpdate = z.infer<typeof productUpdate>
 
 export const variantUpdate = variantInput.omit({ initialStock: true })
@@ -57,12 +71,15 @@ export const movementInput = z.object({
 })
 export type MovementInput = z.infer<typeof movementInput>
 
+type ProductShape = Pick<ProductInput, 'stockMode' | 'variantTypeId'>
+
 /** Selling and taking back what was sold is everyday work; the rest changes the books. */
 const AGENT_MOVEMENTS: readonly StockMovementKind[] = ['sale', 'return']
 
 const variantColumns = {
   id: productVariants.id,
   productId: productVariants.productId,
+  optionId: productVariants.optionId,
   name: productVariants.name,
   sku: productVariants.sku,
   priceCents: productVariants.priceCents,
@@ -75,7 +92,10 @@ const variantColumns = {
 }
 
 export class InventoryService {
-  constructor(private readonly categories: CategoryService) {}
+  constructor(
+    private readonly categories: CategoryService,
+    private readonly variantTypes: VariantTypeService,
+  ) {}
 
   async list(scope: MemberScope) {
     const [items, variants] = await Promise.all([
@@ -84,6 +104,7 @@ export class InventoryService {
           id: products.id,
           name: products.name,
           categoryId: products.categoryId,
+          variantTypeId: products.variantTypeId,
           // The name too, so screens and exports need no second lookup.
           category: sql<string>`coalesce(${productCategories.name}, '')`,
           description: products.description,
@@ -104,16 +125,16 @@ export class InventoryService {
   async create(scope: MemberScope, input: ProductInput) {
     const { tx, tenantId } = scope
     await this.categories.assertExists(scope, input.categoryId)
-    const [product] = await tx
-      .insert(products)
-      .values({ tenantId, name: input.name, categoryId: input.categoryId, description: input.description, stockMode: input.stockMode })
-      .returning({ id: products.id })
-    for (const variant of input.variants) await this.insertVariant(scope, product!.id, input.stockMode, variant)
+    await this.variantTypes.assertType(scope, input.variantTypeId)
+    const { variants, ...fields } = input
+    const [product] = await tx.insert(products).values({ tenantId, ...fields }).returning({ id: products.id })
+    for (const variant of variants) await this.insertVariant(scope, product!.id, input, variant)
     return product!
   }
 
   async updateProduct(scope: MemberScope, productId: string, input: ProductUpdate) {
     await this.categories.assertExists(scope, input.categoryId)
+    await this.variantTypes.assertType(scope, input.variantTypeId)
     const updated = await scope.tx
       .update(products)
       .set(input)
@@ -124,31 +145,56 @@ export class InventoryService {
 
   /** A new variant of an existing product, with its opening stock as a movement like at creation. */
   async addVariant(scope: MemberScope, productId: string, input: VariantInput) {
-    const [product] = await scope.tx
-      .select({ stockMode: products.stockMode })
-      .from(products)
-      .where(and(eq(products.tenantId, scope.tenantId), eq(products.id, productId)))
-    if (!product) throw new InventoryNotFoundError()
-    return { id: await this.insertVariant(scope, productId, product.stockMode, input) }
+    return { id: await this.insertVariant(scope, productId, await this.productShape(scope, productId), input) }
   }
 
-  private async insertVariant(scope: MemberScope, productId: string, stockMode: ProductInput['stockMode'], { initialStock, ...variant }: VariantInput) {
+  private async insertVariant(scope: MemberScope, productId: string, product: ProductShape, { initialStock, ...variant }: VariantInput) {
     const { tx, tenantId } = scope
-    const [row] = await tx.insert(productVariants).values({ tenantId, productId, ...variant }).returning({ id: productVariants.id })
-    if (stockMode === 'units' && initialStock > 0) {
+    const naming = await this.naming(scope, product.variantTypeId, variant)
+    const [row] = await tx.insert(productVariants).values({ tenantId, productId, ...variant, ...naming }).returning({ id: productVariants.id })
+    if (product.stockMode === 'units' && initialStock > 0) {
       await tx.insert(stockMovements).values({ tenantId, variantId: row!.id, kind: 'initial', quantity: initialStock, reason: 'Existencia inicial', userId: scope.member.userId })
     }
     return row!.id
   }
 
   async updateVariant(scope: MemberScope, variantId: string, input: VariantUpdate) {
+    const [current] = await scope.tx
+      .select({ productId: productVariants.productId })
+      .from(productVariants)
+      .where(and(eq(productVariants.tenantId, scope.tenantId), eq(productVariants.id, variantId)))
+    if (!current) throw new InventoryNotFoundError()
+    const naming = await this.naming(scope, (await this.productShape(scope, current.productId)).variantTypeId, input)
     const [row] = await scope.tx
       .update(productVariants)
-      .set(input)
+      .set({ ...input, ...naming })
       .where(and(eq(productVariants.tenantId, scope.tenantId), eq(productVariants.id, variantId)))
       .returning(variantColumns)
     if (!row) throw new InventoryNotFoundError()
     return row
+  }
+
+  private async productShape(scope: MemberScope, productId: string): Promise<ProductShape> {
+    const [product] = await scope.tx
+      .select({ stockMode: products.stockMode, variantTypeId: products.variantTypeId })
+      .from(products)
+      .where(and(eq(products.tenantId, scope.tenantId), eq(products.id, productId)))
+    if (!product) throw new InventoryNotFoundError()
+    return product
+  }
+
+  /**
+   * How a variant is named under its product's type: a value of that type (the name is the
+   * value), or, without a type, the name typed. Variants from before the product had a type
+   * keep their typed name.
+   */
+  private async naming(scope: MemberScope, typeId: string | null, variant: Pick<VariantInput, 'optionId' | 'name'>) {
+    if (variant.optionId) {
+      if (!typeId) throw new InvalidVariantError('This product has no variant type: name its variants instead')
+      return { variantTypeId: typeId, optionId: variant.optionId, name: await this.variantTypes.optionValue(scope, typeId, variant.optionId) }
+    }
+    if (!variant.name) throw new InvalidVariantError(typeId ? 'Choose one of the values of the product type' : 'Name the variant')
+    return { variantTypeId: null, optionId: null, name: variant.name }
   }
 
   async setActive(scope: MemberScope, productId: string, active: boolean) {

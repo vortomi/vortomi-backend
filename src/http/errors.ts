@@ -6,7 +6,7 @@ import type { FastifyError, FastifyInstance } from 'fastify'
  */
 export class ApiError extends Error {
   constructor(
-    readonly statusCode: 400 | 401 | 403 | 404 | 409 | 422,
+    readonly statusCode: 400 | 401 | 403 | 404 | 409 | 410 | 422,
     readonly code: string,
     message = code,
   ) {

@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify'
 import { sql } from 'drizzle-orm'
 import type { Database } from './db/client.ts'
-import { apiRoutes } from './http/api.ts'
+import { apiRoutes, publicApiRoutes } from './http/api.ts'
 import type { AccessTokenVerifier } from './modules/access/identity.ts'
 import type { ChannelCredentials } from './modules/channels/channel-credentials.ts'
 import type { TemplateRegistry, WhatsAppSender } from './modules/whatsapp/cloud-api.client.ts'
@@ -55,6 +55,9 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     appSecret: deps.appSecret,
     onVerifiedPayload: deps.onVerifiedPayload,
   })
+
+  // Registered apart from /api so the session check there does not apply to it.
+  await app.register(publicApiRoutes, { prefix: '/api/public', db: deps.db })
 
   await app.register(apiRoutes, {
     prefix: '/api',

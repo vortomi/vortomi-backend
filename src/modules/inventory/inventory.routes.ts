@@ -4,21 +4,61 @@ import type { Database } from '../../db/client.ts'
 import { asAdmin, inCompany } from '../../http/company-scope.ts'
 import { parseInput } from '../../http/validation.ts'
 import { type CategoryService, categoryInput } from './category-service.ts'
+import { type VariantTypeService, variantOptionInput, variantTypeInput } from './variant-type-service.ts'
 import { type InventoryService, movementInput, productInput, productUpdate, variantInput, variantUpdate } from './inventory-service.ts'
 
 export interface InventoryRoutesOptions {
   db: Database
   inventory: InventoryService
   categories: CategoryService
+  variantTypes: VariantTypeService
 }
 
 const productParams = z.object({ productId: z.uuid() })
 const categoryParams = z.object({ categoryId: z.uuid() })
+const typeParams = z.object({ typeId: z.uuid() })
+const optionParams = z.object({ optionId: z.uuid() })
 const variantParams = z.object({ variantId: z.uuid() })
 const activeBody = z.object({ active: z.boolean() })
 
 /** /tenants/:tenantId/inventory. Everyone reads and sells; admins manage the catalog. */
-export const inventoryRoutes: FastifyPluginCallback<InventoryRoutesOptions> = (app, { db, inventory, categories }, done) => {
+export const inventoryRoutes: FastifyPluginCallback<InventoryRoutesOptions> = (app, { db, inventory, categories, variantTypes }, done) => {
+  app.get('/inventory/variant-types', (request) => inCompany(db, request, async (scope) => ({ items: await variantTypes.list(scope) })))
+
+  app.post('/inventory/variant-types', async (request, reply) =>
+    reply.code(201).send(await asAdmin(db, request, (scope) => variantTypes.createType(scope, parseInput(variantTypeInput, request.body).name))),
+  )
+
+  app.put('/inventory/variant-types/:typeId', (request) =>
+    asAdmin(db, request, (scope) => variantTypes.renameType(scope, parseInput(typeParams, request.params).typeId, parseInput(variantTypeInput, request.body).name)),
+  )
+
+  app.delete('/inventory/variant-types/:typeId', async (request, reply) => {
+    await asAdmin(db, request, (scope) => variantTypes.removeType(scope, parseInput(typeParams, request.params).typeId))
+    return reply.code(204).send()
+  })
+
+  app.post('/inventory/variant-types/:typeId/options', async (request, reply) =>
+    reply
+      .code(201)
+      .send(
+        await asAdmin(db, request, (scope) =>
+          variantTypes.addOption(scope, parseInput(typeParams, request.params).typeId, parseInput(variantOptionInput, request.body).value),
+        ),
+      ),
+  )
+
+  app.put('/inventory/variant-options/:optionId', (request) =>
+    asAdmin(db, request, (scope) =>
+      variantTypes.renameOption(scope, parseInput(optionParams, request.params).optionId, parseInput(variantOptionInput, request.body).value),
+    ),
+  )
+
+  app.delete('/inventory/variant-options/:optionId', async (request, reply) => {
+    await asAdmin(db, request, (scope) => variantTypes.removeOption(scope, parseInput(optionParams, request.params).optionId))
+    return reply.code(204).send()
+  })
+
   app.get('/inventory/categories', (request) => inCompany(db, request, async (scope) => ({ items: await categories.list(scope) })))
 
   app.post('/inventory/categories', async (request, reply) =>

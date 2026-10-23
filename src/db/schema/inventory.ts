@@ -25,6 +25,43 @@ export const productCategories = pgTable(
   ],
 )
 
+/** What tells a product's variants apart (Marca, Talla, Presentación), defined once per company. */
+export const variantTypes = pgTable(
+  'variant_types',
+  {
+    id: uuidIdColumn(),
+    tenantId: tenantIdColumn().references(() => tenants.id),
+    name: text('name').notNull(),
+    createdAt: createdAtColumn(),
+  },
+  (t) => [
+    unique('variant_types_tenant_id_id_key').on(t.tenantId, t.id),
+    uniqueIndex('variant_types_tenant_name_key').on(t.tenantId, sql`lower(${t.name})`),
+    check('variant_types_name_check', sql`length(trim(${t.name})) between 1 and 40`),
+  ],
+)
+
+/** The values of a type (Bosch, Brembo...). A variant picks one instead of typing it. */
+export const variantOptions = pgTable(
+  'variant_options',
+  {
+    id: uuidIdColumn(),
+    tenantId: tenantIdColumn(),
+    typeId: uuid('type_id').notNull(),
+    value: text('value').notNull(),
+    createdAt: createdAtColumn(),
+  },
+  (t) => [
+    unique('variant_options_tenant_id_id_key').on(t.tenantId, t.id),
+    // Lets a variant require that its option belongs to the product's type (product_variants_option_fk).
+    unique('variant_options_tenant_type_id_key').on(t.tenantId, t.typeId, t.id),
+    uniqueIndex('variant_options_type_value_key').on(t.tenantId, t.typeId, sql`lower(${t.value})`),
+    // Deleting a type takes its values along; it fails while a variant still uses one of them.
+    foreignKey({ name: 'variant_options_type_fk', columns: [t.tenantId, t.typeId], foreignColumns: [variantTypes.tenantId, variantTypes.id] }).onDelete('cascade'),
+    check('variant_options_value_check', sql`length(trim(${t.value})) between 1 and 60`),
+  ],
+)
+
 export const products = pgTable(
   'products',
   {
@@ -33,6 +70,8 @@ export const products = pgTable(
     name: text('name').notNull(),
     // Null: no category yet. A category with products cannot be deleted (products_category_fk).
     categoryId: uuid('category_id'),
+    // Null: variants are named freely (a single "Única", or products from before types existed).
+    variantTypeId: uuid('variant_type_id'),
     description: text('description').notNull().default(''),
     stockMode: text('stock_mode', { enum: STOCK_MODES }).notNull(),
     active: boolean('active').notNull().default(true),
@@ -42,6 +81,9 @@ export const products = pgTable(
     unique('products_tenant_id_id_key').on(t.tenantId, t.id),
     foreignKey({ name: 'products_category_fk', columns: [t.tenantId, t.categoryId], foreignColumns: [productCategories.tenantId, productCategories.id] }),
     index('products_category_idx').on(t.tenantId, t.categoryId),
+    // (tenant, id, type) lets each variant check its option against the product's type.
+    unique('products_tenant_id_type_key').on(t.tenantId, t.id, t.variantTypeId),
+    foreignKey({ name: 'products_variant_type_fk', columns: [t.tenantId, t.variantTypeId], foreignColumns: [variantTypes.tenantId, variantTypes.id] }),
     check('products_stock_mode_check', oneOf(t.stockMode, STOCK_MODES)),
     check('products_name_check', sql`length(trim(${t.name})) between 1 and 120`),
   ],
@@ -53,8 +95,11 @@ export const productVariants = pgTable(
     id: uuidIdColumn(),
     tenantId: tenantIdColumn(),
     productId: uuid('product_id').notNull(),
-    // What tells variants apart: brand, model, size...
+    // What tells variants apart: brand, model, size... With an option, its value (kept in sync by the API).
     name: text('name').notNull(),
+    // The product's type, repeated so the database can check the option belongs to it.
+    variantTypeId: uuid('variant_type_id'),
+    optionId: uuid('option_id'),
     sku: text('sku').notNull(),
     // Dollars, in cents.
     priceCents: integer('price_cents').notNull(),
@@ -71,6 +116,21 @@ export const productVariants = pgTable(
     // The SKU is unique per company, not globally.
     uniqueIndex('product_variants_tenant_sku_key').on(t.tenantId, sql`lower(${t.sku})`),
     foreignKey({ name: 'product_variants_product_fk', columns: [t.tenantId, t.productId], foreignColumns: [products.tenantId, products.id] }),
+    // The variant's type is the product's type: it cannot change while variants use it.
+    foreignKey({
+      name: 'product_variants_product_type_fk',
+      columns: [t.tenantId, t.productId, t.variantTypeId],
+      foreignColumns: [products.tenantId, products.id, products.variantTypeId],
+    }),
+    // The option must be a value of the product's own type, of the same company.
+    foreignKey({
+      name: 'product_variants_option_fk',
+      columns: [t.tenantId, t.variantTypeId, t.optionId],
+      foreignColumns: [variantOptions.tenantId, variantOptions.typeId, variantOptions.id],
+    }),
+    // A product cannot have the same option twice ("Bosch" and "Bosch").
+    uniqueIndex('product_variants_product_option_key').on(t.tenantId, t.productId, t.optionId),
+    check('product_variants_option_check', sql`(${t.optionId} is null) = (${t.variantTypeId} is null)`),
     index('product_variants_product_idx').on(t.tenantId, t.productId),
     check('product_variants_price_check', sql`${t.priceCents} >= 0`),
     // Never fewer units than are set aside: this is what refuses selling the last unit twice.

@@ -13,11 +13,14 @@ import { conversationRoutes } from '../modules/conversations/conversations.route
 import { OutboundService } from '../modules/messaging/outbound.service.ts'
 import { CategoryService } from '../modules/inventory/category-service.ts'
 import { InventoryService } from '../modules/inventory/inventory-service.ts'
+import { VariantTypeService } from '../modules/inventory/variant-type-service.ts'
 import { inventoryRoutes } from '../modules/inventory/inventory.routes.ts'
 import { UsageService } from '../modules/usage/usage-service.ts'
 import { usageRoutes } from '../modules/usage/usage.routes.ts'
 import { platformRoutes } from '../modules/platform/platform.routes.ts'
 import { TenantCatalog } from '../modules/platform/tenant-catalog.ts'
+import { InvitationService } from '../modules/team/invitation-service.ts'
+import { invitationRoutes, publicInvitationRoutes } from '../modules/team/invitation.routes.ts'
 import { TeamService } from '../modules/team/team-service.ts'
 import { teamRoutes } from '../modules/team/team.routes.ts'
 import { PipelineService } from '../modules/workspace/pipeline-service.ts'
@@ -40,6 +43,15 @@ export interface ApiOptions {
 }
 
 const COMPANY = '/tenants/:tenantId'
+
+/**
+ * The few answers given without a session (/api/public): an invitation link shows who it is
+ * for before the person has an account. Same error answers as the rest of the API.
+ */
+export const publicApiRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => {
+  installErrorHandler(app, toApiError)
+  await app.register(publicInvitationRoutes, { invitations: new InvitationService(db) })
+}
 
 /**
  * The panel's API (/api). Everything in here requires a verified Supabase session;
@@ -68,8 +80,11 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   await app.register(contactRoutes, { prefix: COMPANY, db, contacts: contactService, tags: new TagService() })
   await app.register(templateRoutes, { prefix: COMPANY, db, templates: new TemplateService(db, credentials, templateRegistry) })
   const categories = new CategoryService()
-  await app.register(inventoryRoutes, { prefix: COMPANY, db, inventory: new InventoryService(categories), categories })
-  await app.register(teamRoutes, { prefix: COMPANY, db, team: new TeamService() })
+  const variantTypes = new VariantTypeService()
+  await app.register(inventoryRoutes, { prefix: COMPANY, db, inventory: new InventoryService(categories, variantTypes), categories, variantTypes })
+  const invitations = new InvitationService(db)
+  await app.register(teamRoutes, { prefix: COMPANY, db, team: new TeamService(), invitations })
+  await app.register(invitationRoutes, { invitations })
   await app.register(workspaceRoutes, {
     prefix: COMPANY,
     db,
