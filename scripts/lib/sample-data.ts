@@ -46,6 +46,7 @@ export async function seedSampleData(db: Database, dataDir: string): Promise<See
     conversations: load('conversations'),
     messages: load('messages'),
     notes: load('notes'),
+    categories: load('product-categories'),
     products: load('products'),
     variants: load('product-variants'),
     movements: load('stock-movements'),
@@ -201,12 +202,15 @@ export async function seedSampleData(db: Database, dataDir: string): Promise<See
       })
     }
 
+    for (const row of data.categories) {
+      await tx.insert(s.productCategories).values({ id: id(row), tenantId: id(row, 'tenantId'), name: str(row, 'name') })
+    }
     for (const row of data.products) {
       await tx.insert(s.products).values({
         id: id(row),
         tenantId: id(row, 'tenantId'),
         name: str(row, 'name'),
-        category: str(row, 'category'),
+        categoryId: optId(row, 'categoryId'),
         description: str(row, 'description'),
         stockMode: str(row, 'stockMode') as never,
         active: row['active'] as boolean,

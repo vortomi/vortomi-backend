@@ -11,6 +11,7 @@ import { ConversationCommands } from '../modules/conversations/conversation-comm
 import { ConversationQueries } from '../modules/conversations/conversation-queries.ts'
 import { conversationRoutes } from '../modules/conversations/conversations.routes.ts'
 import { OutboundService } from '../modules/messaging/outbound.service.ts'
+import { CategoryService } from '../modules/inventory/category-service.ts'
 import { InventoryService } from '../modules/inventory/inventory-service.ts'
 import { inventoryRoutes } from '../modules/inventory/inventory.routes.ts'
 import { UsageService } from '../modules/usage/usage-service.ts'
@@ -66,7 +67,8 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   const contactService = new ContactService()
   await app.register(contactRoutes, { prefix: COMPANY, db, contacts: contactService, tags: new TagService() })
   await app.register(templateRoutes, { prefix: COMPANY, db, templates: new TemplateService(db, credentials, templateRegistry) })
-  await app.register(inventoryRoutes, { prefix: COMPANY, db, inventory: new InventoryService() })
+  const categories = new CategoryService()
+  await app.register(inventoryRoutes, { prefix: COMPANY, db, inventory: new InventoryService(categories), categories })
   await app.register(teamRoutes, { prefix: COMPANY, db, team: new TeamService() })
   await app.register(workspaceRoutes, {
     prefix: COMPANY,

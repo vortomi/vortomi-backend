@@ -8,13 +8,31 @@ import { tenants } from './tenancy.ts'
 // Inventory (documentations/05): stock is a history of immutable movements; the
 // current count on each variant is kept by a trigger (drizzle/0013_inventory_security.sql).
 
+/** The company's own list of categories; a product picks one instead of typing it. */
+export const productCategories = pgTable(
+  'product_categories',
+  {
+    id: uuidIdColumn(),
+    tenantId: tenantIdColumn().references(() => tenants.id),
+    name: text('name').notNull(),
+    createdAt: createdAtColumn(),
+  },
+  (t) => [
+    unique('product_categories_tenant_id_id_key').on(t.tenantId, t.id),
+    // "Frenos" and "frenos" are the same category.
+    uniqueIndex('product_categories_tenant_name_key').on(t.tenantId, sql`lower(${t.name})`),
+    check('product_categories_name_check', sql`length(trim(${t.name})) between 1 and 60`),
+  ],
+)
+
 export const products = pgTable(
   'products',
   {
     id: uuidIdColumn(),
     tenantId: tenantIdColumn().references(() => tenants.id),
     name: text('name').notNull(),
-    category: text('category').notNull().default(''),
+    // Null: no category yet. A category with products cannot be deleted (products_category_fk).
+    categoryId: uuid('category_id'),
     description: text('description').notNull().default(''),
     stockMode: text('stock_mode', { enum: STOCK_MODES }).notNull(),
     active: boolean('active').notNull().default(true),
@@ -22,6 +40,8 @@ export const products = pgTable(
   },
   (t) => [
     unique('products_tenant_id_id_key').on(t.tenantId, t.id),
+    foreignKey({ name: 'products_category_fk', columns: [t.tenantId, t.categoryId], foreignColumns: [productCategories.tenantId, productCategories.id] }),
+    index('products_category_idx').on(t.tenantId, t.categoryId),
     check('products_stock_mode_check', oneOf(t.stockMode, STOCK_MODES)),
     check('products_name_check', sql`length(trim(${t.name})) between 1 and 120`),
   ],

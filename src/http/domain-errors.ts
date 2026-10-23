@@ -1,4 +1,5 @@
 import { NotAMemberError } from '../modules/access/member-scope.ts'
+import { CategoryNotFoundError } from '../modules/inventory/category-service.ts'
 import { InventoryNotFoundError, MovementNotAllowedError } from '../modules/inventory/inventory-service.ts'
 import { ContactNotFoundError, UnknownTagError } from '../modules/contacts/contact-service.ts'
 import { TagNotFoundError } from '../modules/contacts/tag-service.ts'
@@ -21,6 +22,7 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [TemplateAdminRequiredError, 403, 'admin_required'],
   [MovementNotAllowedError, 403, 'admin_required'],
   [InventoryNotFoundError, 404, 'inventory_item_not_found'],
+  [CategoryNotFoundError, 404, 'category_not_found'],
   [ConversationNotFoundError, 404, 'conversation_not_found'],
   [ContactNotFoundError, 404, 'contact_not_found'],
   [TagNotFoundError, 404, 'tag_not_found'],
@@ -43,6 +45,8 @@ const CONSTRAINT_CONFLICTS: Record<string, string> = {
   contacts_stage_fk: 'stage_in_use',
   message_templates_tenant_waba_name_language_key: 'template_exists',
   product_variants_tenant_sku_key: 'sku_taken',
+  product_categories_tenant_name_key: 'category_name_taken',
+  products_category_fk: 'category_in_use',
   product_variants_stock_check: 'insufficient_stock',
   stock_movements_sign_check: 'invalid_movement',
 }

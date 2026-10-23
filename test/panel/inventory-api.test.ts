@@ -35,9 +35,9 @@ afterAll(async () => {
   await t.close()
 })
 
-const call = async (userId: string, method: 'GET' | 'POST' | 'PUT', path: string, payload?: object, tenantId = a.tenantId) =>
+const call = async (userId: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, payload?: object, tenantId = a.tenantId) =>
   app.inject({ method, url: `/api/tenants/${tenantId}${path}`, headers: await bearer(userId), ...(payload ? { payload } : {}) })
-const pads = { name: 'Pastillas de freno', category: 'Frenos', stockMode: 'units', variants: [{ name: 'Bosch', sku: 'PF-BOSCH', priceCents: 3850, lowStockThreshold: 2, initialStock: 3 }] }
+const pads = { name: 'Pastillas de freno', stockMode: 'units', variants: [{ name: 'Bosch', sku: 'PF-BOSCH', priceCents: 3850, lowStockThreshold: 2, initialStock: 3 }] }
 const variant = async (userId = who.carlos) =>
   (await call(userId, 'GET', '/inventory/products')).json<{ items: { variants: Record<string, unknown>[] }[] }>().items[0]!.variants[0]!
 
@@ -57,6 +57,67 @@ describe('catalog', () => {
     expect((await call(who.laura, 'POST', '/inventory/products', again)).json()).toEqual({ error: 'sku_taken' })
     expect((await call(who.pedro, 'POST', '/inventory/products', pads, b.tenantId)).statusCode).toBe(201)
     expect((await call(who.pedro, 'GET', '/inventory/products', undefined, b.tenantId)).json<{ items: unknown[] }>().items).toHaveLength(1)
+  })
+})
+
+describe('editing a product', () => {
+  it('admins rename it and add variants; the new opening stock is a movement too', async () => {
+    const productId = (await call(who.carlos, 'GET', '/inventory/products')).json<{ items: { id: string }[] }>().items[0]!.id
+    const rename = { name: 'Pastillas de freno delanteras', categoryId: null, description: 'Juego de 4' }
+    expect((await call(who.carlos, 'PUT', `/inventory/products/${productId}`, rename)).json()).toEqual({ error: 'admin_required' })
+    expect((await call(who.laura, 'PUT', `/inventory/products/${productId}`, rename)).statusCode).toBe(204)
+
+    const brembo = { name: 'Brembo', sku: 'PF-BREMBO', priceCents: 4500, initialStock: 4 }
+    expect((await call(who.carlos, 'POST', `/inventory/products/${productId}/variants`, brembo)).json()).toEqual({ error: 'admin_required' })
+    expect((await call(who.laura, 'POST', `/inventory/products/${productId}/variants`, brembo)).statusCode).toBe(201)
+    expect((await call(who.laura, 'POST', `/inventory/products/${productId}/variants`, { ...brembo, sku: 'pf-brembo' })).json()).toEqual({ error: 'sku_taken' })
+
+    const product = (await call(who.carlos, 'GET', '/inventory/products')).json<{ items: { name: string; variants: { sku: string; onHand: number }[] }[] }>().items[0]!
+    expect(product.name).toBe('Pastillas de freno delanteras')
+    expect(product.variants.find((v) => v.sku === 'PF-BREMBO')).toMatchObject({ onHand: 4 })
+  })
+
+  it('another company cannot edit it nor add variants to it', async () => {
+    const productId = (await call(who.carlos, 'GET', '/inventory/products')).json<{ items: { id: string }[] }>().items[0]!.id
+    const rename = { name: 'Robado', categoryId: null, description: '' }
+    expect((await call(who.pedro, 'PUT', `/inventory/products/${productId}`, rename, b.tenantId)).json()).toEqual({ error: 'inventory_item_not_found' })
+    const extra = { name: 'X', sku: 'X-1', priceCents: 1 }
+    expect((await call(who.pedro, 'POST', `/inventory/products/${productId}/variants`, extra, b.tenantId)).json()).toEqual({ error: 'inventory_item_not_found' })
+  })
+})
+
+describe('categories', () => {
+  const productId = async () => (await call(who.carlos, 'GET', '/inventory/products')).json<{ items: { id: string }[] }>().items[0]!.id
+
+  it('admins keep the list; names are unique per company ignoring case', async () => {
+    expect((await call(who.carlos, 'POST', '/inventory/categories', { name: 'Frenos' })).json()).toEqual({ error: 'admin_required' })
+    const created = await call(who.laura, 'POST', '/inventory/categories', { name: 'Frenos' })
+    expect(created.statusCode).toBe(201)
+    expect(created.json()).toMatchObject({ name: 'Frenos', productCount: 0 })
+    expect((await call(who.laura, 'POST', '/inventory/categories', { name: 'frenos' })).json()).toEqual({ error: 'category_name_taken' })
+    expect((await call(who.pedro, 'POST', '/inventory/categories', { name: 'Frenos' }, b.tenantId)).statusCode).toBe(201)
+  })
+
+  it('a product picks one of its own company, and shows its name', async () => {
+    const [frenos] = (await call(who.carlos, 'GET', '/inventory/categories')).json<{ items: { id: string }[] }>().items
+    const fields = { name: 'Pastillas de freno delanteras', categoryId: frenos!.id, description: '' }
+    expect((await call(who.laura, 'PUT', `/inventory/products/${await productId()}`, fields)).statusCode).toBe(204)
+    const product = (await call(who.carlos, 'GET', '/inventory/products')).json<{ items: Record<string, unknown>[] }>().items[0]!
+    expect(product).toMatchObject({ categoryId: frenos!.id, category: 'Frenos' })
+    expect((await call(who.carlos, 'GET', '/inventory/categories')).json<{ items: unknown[] }>().items).toEqual([expect.objectContaining({ productCount: 1 })])
+
+    const theirs = (await call(who.pedro, 'GET', '/inventory/categories', undefined, b.tenantId)).json<{ items: { id: string }[] }>().items[0]!
+    const stolen = { ...fields, categoryId: theirs.id }
+    expect((await call(who.laura, 'PUT', `/inventory/products/${await productId()}`, stolen)).json()).toEqual({ error: 'category_not_found' })
+  })
+
+  it('a category with products cannot be deleted; an empty one can', async () => {
+    const [frenos] = (await call(who.carlos, 'GET', '/inventory/categories')).json<{ items: { id: string }[] }>().items
+    expect((await call(who.laura, 'DELETE', `/inventory/categories/${frenos!.id}`)).json()).toEqual({ error: 'category_in_use' })
+    const empty = (await call(who.laura, 'POST', '/inventory/categories', { name: 'Suspensión' })).json<{ id: string }>()
+    expect((await call(who.laura, 'PUT', `/inventory/categories/${empty.id}`, { name: 'Suspensión y dirección' })).json()).toMatchObject({ name: 'Suspensión y dirección' })
+    expect((await call(who.laura, 'DELETE', `/inventory/categories/${empty.id}`)).statusCode).toBe(204)
+    expect((await call(who.pedro, 'DELETE', `/inventory/categories/${frenos!.id}`, undefined, b.tenantId)).json()).toEqual({ error: 'category_not_found' })
   })
 })
 

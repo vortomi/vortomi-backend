@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { STOCK_MODES, STOCK_MOVEMENT_KINDS, type StockMovementKind } from '../../db/schema/enums.ts'
-import { productVariants, products, stockMovements } from '../../db/schema/index.ts'
+import { productCategories, productVariants, products, stockMovements } from '../../db/schema/index.ts'
 import type { MemberScope } from '../access/member-scope.ts'
+import type { CategoryService } from './category-service.ts'
 
 export class InventoryNotFoundError extends Error {
   constructor() {
@@ -20,7 +21,7 @@ export class MovementNotAllowedError extends Error {
 
 const money = z.number().int().min(0).max(2_000_000_000)
 
-const variantInput = z.object({
+export const variantInput = z.object({
   name: z.string().trim().min(1).max(80),
   sku: z.string().trim().min(1).max(60),
   priceCents: money,
@@ -32,12 +33,18 @@ const variantInput = z.object({
 
 export const productInput = z.object({
   name: z.string().trim().min(1).max(120),
-  category: z.string().trim().max(60).default(''),
+  // One of the company's categories (category-service); null while it has none.
+  categoryId: z.uuid().nullable().default(null),
   description: z.string().trim().max(2000).default(''),
   stockMode: z.enum(STOCK_MODES),
   variants: z.array(variantInput).min(1).max(50),
 })
 export type ProductInput = z.infer<typeof productInput>
+type VariantInput = z.infer<typeof variantInput>
+
+/** What can change once a product exists. The stock mode cannot: its history is counted one way. */
+export const productUpdate = productInput.pick({ name: true, categoryId: true, description: true })
+export type ProductUpdate = z.infer<typeof productUpdate>
 
 export const variantUpdate = variantInput.omit({ initialStock: true })
 export type VariantUpdate = z.infer<typeof variantUpdate>
@@ -68,11 +75,24 @@ const variantColumns = {
 }
 
 export class InventoryService {
+  constructor(private readonly categories: CategoryService) {}
+
   async list(scope: MemberScope) {
     const [items, variants] = await Promise.all([
       scope.tx
-        .select({ id: products.id, name: products.name, category: products.category, description: products.description, stockMode: products.stockMode, active: products.active, createdAt: products.createdAt })
+        .select({
+          id: products.id,
+          name: products.name,
+          categoryId: products.categoryId,
+          // The name too, so screens and exports need no second lookup.
+          category: sql<string>`coalesce(${productCategories.name}, '')`,
+          description: products.description,
+          stockMode: products.stockMode,
+          active: products.active,
+          createdAt: products.createdAt,
+        })
         .from(products)
+        .leftJoin(productCategories, and(eq(productCategories.tenantId, products.tenantId), eq(productCategories.id, products.categoryId)))
         .where(eq(products.tenantId, scope.tenantId))
         .orderBy(asc(products.name)),
       scope.tx.select(variantColumns).from(productVariants).where(eq(productVariants.tenantId, scope.tenantId)).orderBy(asc(productVariants.name)),
@@ -83,17 +103,42 @@ export class InventoryService {
   /** One transaction: the product, its variants and their opening stock as movements. */
   async create(scope: MemberScope, input: ProductInput) {
     const { tx, tenantId } = scope
+    await this.categories.assertExists(scope, input.categoryId)
     const [product] = await tx
       .insert(products)
-      .values({ tenantId, name: input.name, category: input.category, description: input.description, stockMode: input.stockMode })
+      .values({ tenantId, name: input.name, categoryId: input.categoryId, description: input.description, stockMode: input.stockMode })
       .returning({ id: products.id })
-    for (const { initialStock, ...variant } of input.variants) {
-      const [row] = await tx.insert(productVariants).values({ tenantId, productId: product!.id, ...variant }).returning({ id: productVariants.id })
-      if (input.stockMode === 'units' && initialStock > 0) {
-        await tx.insert(stockMovements).values({ tenantId, variantId: row!.id, kind: 'initial', quantity: initialStock, reason: 'Existencia inicial', userId: scope.member.userId })
-      }
-    }
+    for (const variant of input.variants) await this.insertVariant(scope, product!.id, input.stockMode, variant)
     return product!
+  }
+
+  async updateProduct(scope: MemberScope, productId: string, input: ProductUpdate) {
+    await this.categories.assertExists(scope, input.categoryId)
+    const updated = await scope.tx
+      .update(products)
+      .set(input)
+      .where(and(eq(products.tenantId, scope.tenantId), eq(products.id, productId)))
+      .returning({ id: products.id })
+    if (!updated.length) throw new InventoryNotFoundError()
+  }
+
+  /** A new variant of an existing product, with its opening stock as a movement like at creation. */
+  async addVariant(scope: MemberScope, productId: string, input: VariantInput) {
+    const [product] = await scope.tx
+      .select({ stockMode: products.stockMode })
+      .from(products)
+      .where(and(eq(products.tenantId, scope.tenantId), eq(products.id, productId)))
+    if (!product) throw new InventoryNotFoundError()
+    return { id: await this.insertVariant(scope, productId, product.stockMode, input) }
+  }
+
+  private async insertVariant(scope: MemberScope, productId: string, stockMode: ProductInput['stockMode'], { initialStock, ...variant }: VariantInput) {
+    const { tx, tenantId } = scope
+    const [row] = await tx.insert(productVariants).values({ tenantId, productId, ...variant }).returning({ id: productVariants.id })
+    if (stockMode === 'units' && initialStock > 0) {
+      await tx.insert(stockMovements).values({ tenantId, variantId: row!.id, kind: 'initial', quantity: initialStock, reason: 'Existencia inicial', userId: scope.member.userId })
+    }
+    return row!.id
   }
 
   async updateVariant(scope: MemberScope, variantId: string, input: VariantUpdate) {
