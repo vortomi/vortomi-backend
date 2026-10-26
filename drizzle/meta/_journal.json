@@ -162,6 +162,27 @@
       "when": 1793052097629,
       "tag": "0022_inbox_change_notices",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793054581308,
+      "tag": "0023_company_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793054900510,
+      "tag": "0024_contact_stage_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793054902493,
+      "tag": "0025_contact_stage_events_security",
+      "breakpoints": true
     }
   ]
 }

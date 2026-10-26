@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client.ts'
 import type { MemberRole } from '../../db/schema/enums.ts'
 import { membershipChannels, memberships, tenants } from '../../db/schema/index.ts'
@@ -66,6 +66,9 @@ export async function withMember<T>(
     // Only after proving membership: an outsider learns nothing about the company's state.
     const [tenant] = await scope.tx.select({ status: tenants.status }).from(tenants).where(eq(tenants.id, scope.tenantId))
     if (tenant?.status !== 'active') throw new CompanyUnavailableError()
+    // Who acts, for the history the database keeps by itself (pipeline moves). Local to this
+    // transaction, like app.tenant_id: it never leaks to the next use of the connection.
+    await scope.tx.execute(sql`select set_config('app.user_id', ${userId}, true)`)
     return work({ ...scope, member })
   })
 }

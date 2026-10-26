@@ -31,6 +31,8 @@ import { TemplateService } from '../modules/templates/template-service.ts'
 import { templateRoutes } from '../modules/templates/templates.routes.ts'
 import type { InboxFeed } from '../modules/realtime/inbox-feed.ts'
 import { realtimeRoutes } from '../modules/realtime/realtime.routes.ts'
+import { ReportService } from '../modules/reports/report-service.ts'
+import { reportsRoutes } from '../modules/reports/reports.routes.ts'
 import type { TemplateRegistry, WabaDirectory, WhatsAppSender } from '../modules/whatsapp/cloud-api.client.ts'
 import { authenticate } from './authenticate.ts'
 import { toApiError } from './domain-errors.ts'
@@ -89,6 +91,7 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   const variantTypes = new VariantTypeService()
   await app.register(inventoryRoutes, { prefix: COMPANY, db, inventory: new InventoryService(categories, variantTypes), categories, variantTypes })
   await app.register(realtimeRoutes, { prefix: COMPANY, db, feed })
+  await app.register(reportsRoutes, { prefix: COMPANY, db, reports: new ReportService() })
   await app.register(teamRoutes, { prefix: COMPANY, db, team: new TeamService(), invitations })
   await app.register(invitationRoutes, { invitations })
   await app.register(workspaceRoutes, {

@@ -5,7 +5,7 @@ import { TAG_TONES } from '../../db/schema/enums.ts'
 import { asAdmin, inCompany } from '../../http/company-scope.ts'
 import { parseInput } from '../../http/validation.ts'
 import { PAGE_SIZE, decodeCursor } from '../../shared/pagination.ts'
-import type { ContactService } from './contact-service.ts'
+import { type ContactService, contactInput, importInput } from './contact-service.ts'
 import type { TagService } from './tag-service.ts'
 
 export interface ContactRoutesOptions {
@@ -33,6 +33,13 @@ export const contactRoutes: FastifyPluginCallback<ContactRoutesOptions> = (app, 
       return contacts.list(scope, { ...filters, cursor: decodeCursor(cursor) })
     }),
   )
+
+  app.post('/contacts', async (request, reply) =>
+    reply.code(201).send(await inCompany(db, request, (scope) => contacts.create(scope, parseInput(contactInput, request.body)))),
+  )
+
+  // A whole list at once is an admin's call.
+  app.post('/contacts/import', (request) => asAdmin(db, request, (scope) => contacts.import(scope, parseInput(importInput, request.body))))
 
   app.get('/contacts/:contactId', (request) =>
     inCompany(db, request, (scope) => contacts.get(scope, parseInput(contactParams, request.params).contactId)),

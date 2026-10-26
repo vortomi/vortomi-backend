@@ -165,3 +165,28 @@ export const messageDeliveryStatus = pgView('message_delivery_status', {
   status: text('status', { enum: DELIVERY_STATUSES }).notNull(),
   occurredAt: timestamptz('occurred_at').notNull(),
 }).existing()
+
+/**
+ * Every time a contact moves along the pipeline, kept forever (append-only, written only by a
+ * trigger on contacts: drizzle/0025). Who moved it comes from app.user_id, set for each request
+ * by withMember(). Reports count the moves into the company's last stage as won sales.
+ */
+export const contactStageEvents = pgTable(
+  'contact_stage_events',
+  {
+    id: serialIdColumn(),
+    tenantId: tenantIdColumn(),
+    contactId: uuid('contact_id').notNull(),
+    // Null: the contact left the pipeline.
+    stageId: uuid('stage_id'),
+    // The quote at the moment of the move, in cents.
+    quoteCents: integer('quote_cents'),
+    // Null when no person did it (a script, the platform).
+    changedBy: uuid('changed_by'),
+    createdAt: createdAtColumn(),
+  },
+  (t) => [
+    foreignKey({ name: 'contact_stage_events_contact_fk', columns: [t.tenantId, t.contactId], foreignColumns: [contacts.tenantId, contacts.id] }),
+    index('contact_stage_events_tenant_created_idx').on(t.tenantId, t.createdAt),
+  ],
+)

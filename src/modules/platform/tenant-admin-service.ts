@@ -2,6 +2,7 @@ import { and, asc, count, eq, gt, inArray, max, ne, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database } from '../../db/client.ts'
 import { TENANT_PLANS } from '../../db/schema/enums.ts'
+import { timeZone } from '../../shared/time-zone.ts'
 import { channelAccounts, channelCredentials, memberships, messages, tenants, users } from '../../db/schema/index.ts'
 import type { ChannelCredentials } from '../channels/channel-credentials.ts'
 import type { InvitationService } from '../team/invitation-service.ts'
@@ -35,20 +36,12 @@ const taxId = z
   .refine((clean) => /^[JVEGPC]\d{9}$/.test(clean), 'RIF: letra y 9 dígitos')
   .transform((clean) => `${clean[0]}-${clean.slice(1, 9)}-${clean[9]}`)
 
-const timezone = z.string().refine((zone) => {
-  try {
-    new Intl.DateTimeFormat('en', { timeZone: zone })
-    return true
-  } catch {
-    return false
-  }
-}, 'Unknown time zone')
 
 export const tenantInput = z.object({
   name: z.string().trim().min(1).max(80),
   industry: z.string().trim().max(60).default(''),
   city: z.string().trim().max(60).default(''),
-  timezone: timezone.default('America/Caracas'),
+  timezone: timeZone.default('America/Caracas'),
   plan: z.enum(TENANT_PLANS),
   legalName: z.string().trim().min(1).max(160),
   taxId,

@@ -6,7 +6,7 @@ import { asAdmin as asAdminIn, inCompany } from '../../http/company-scope.ts'
 import { parseInput } from '../../http/validation.ts'
 import { type PipelineService, opportunityInput, stageInput } from './pipeline-service.ts'
 import { type QuickReplyService, quickReplyInput } from './quick-reply-service.ts'
-import { type SettingsService, settingsInput } from './settings-service.ts'
+import { type SettingsService, profileInput, settingsInput } from './settings-service.ts'
 
 export interface WorkspaceRoutesOptions {
   db: Database
@@ -28,6 +28,7 @@ export const workspaceRoutes: FastifyPluginCallback<WorkspaceRoutesOptions> = (a
 
   app.get('/settings', (request) => inCompany(db, request, (scope) => settings.get(scope)))
   app.put('/settings', (request) => asAdmin(request, (scope) => settings.save(scope, parseInput(settingsInput, request.body))))
+  app.put('/profile', (request) => asAdmin(request, (scope) => settings.saveProfile(scope, parseInput(profileInput, request.body))))
 
   app.get('/quick-replies', (request) => inCompany(db, request, async (scope) => ({ items: await quickReplies.list(scope) })))
   app.post('/quick-replies', async (request, reply) =>

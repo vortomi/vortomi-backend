@@ -52,6 +52,17 @@ const call = async (userId: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE', p
 
 const weekdays = [1, 2, 3, 4, 5].map((day) => ({ day, open: '08:00', close: '17:00' }))
 
+describe('company profile', () => {
+  it('admins rename their company and set its time zone; agents cannot; another company is untouched', async () => {
+    const profile = { name: 'Repuestos Andinos', timezone: 'America/Bogota' }
+    expect((await call(who.carlos, 'PUT', '/profile', profile)).json()).toEqual({ error: 'admin_required' })
+    expect((await call(who.laura, 'PUT', '/profile', profile)).json()).toEqual(profile)
+    expect((await call(who.laura, 'PUT', '/profile', { ...profile, timezone: 'Mars/Olympus' })).statusCode).toBe(400)
+    const me = await app.inject({ method: 'GET', url: '/api/me', headers: await bearer(who.pedro) })
+    expect(me.json<{ companies: { name: string; timezone: string }[] }>().companies[0]).toMatchObject({ name: 'Empresa B', timezone: 'America/Caracas' })
+  })
+})
+
 describe('settings', () => {
   it('start with the defaults: sales and support, nothing else to configure', async () => {
     expect((await call(who.carlos, 'GET', '/settings')).json()).toEqual({
