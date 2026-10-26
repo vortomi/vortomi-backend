@@ -155,6 +155,13 @@
       "when": 1792794357478,
       "tag": "0021_console",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793052097629,
+      "tag": "0022_inbox_change_notices",
+      "breakpoints": true
     }
   ]
 }

@@ -29,6 +29,8 @@ import { SettingsService } from '../modules/workspace/settings-service.ts'
 import { workspaceRoutes } from '../modules/workspace/workspace.routes.ts'
 import { TemplateService } from '../modules/templates/template-service.ts'
 import { templateRoutes } from '../modules/templates/templates.routes.ts'
+import type { InboxFeed } from '../modules/realtime/inbox-feed.ts'
+import { realtimeRoutes } from '../modules/realtime/realtime.routes.ts'
 import type { TemplateRegistry, WabaDirectory, WhatsAppSender } from '../modules/whatsapp/cloud-api.client.ts'
 import { authenticate } from './authenticate.ts'
 import { toApiError } from './domain-errors.ts'
@@ -41,6 +43,7 @@ export interface ApiOptions {
   sender: WhatsAppSender
   templateRegistry: TemplateRegistry
   wabaDirectory: WabaDirectory
+  feed: InboxFeed
 }
 
 const COMPANY = '/tenants/:tenantId'
@@ -58,7 +61,7 @@ export const publicApiRoutes: FastifyPluginAsync<{ db: Database }> = async (app,
  * The panel's API (/api). Everything in here requires a verified Supabase session;
  * company data is only reached through inCompany() (membership + withTenant).
  */
-export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory }) => {
+export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed }) => {
   installErrorHandler(app, toApiError)
   app.decorateRequest('identity', null)
   app.addHook('onRequest', authenticate(verifier))
@@ -85,6 +88,7 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   const categories = new CategoryService()
   const variantTypes = new VariantTypeService()
   await app.register(inventoryRoutes, { prefix: COMPANY, db, inventory: new InventoryService(categories, variantTypes), categories, variantTypes })
+  await app.register(realtimeRoutes, { prefix: COMPANY, db, feed })
   await app.register(teamRoutes, { prefix: COMPANY, db, team: new TeamService(), invitations })
   await app.register(invitationRoutes, { invitations })
   await app.register(workspaceRoutes, {

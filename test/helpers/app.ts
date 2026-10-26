@@ -14,6 +14,7 @@ import {
   WhatsAppApiError,
   type WhatsAppSender,
 } from '../../src/modules/whatsapp/cloud-api.client.ts'
+import { InboxFeed } from '../../src/modules/realtime/inbox-feed.ts'
 import { testVerifier } from './auth.ts'
 import { APP_SECRET, VERIFY_TOKEN } from './meta-payloads.ts'
 
@@ -79,6 +80,7 @@ export function buildTestApp(db: Database, overrides: Partial<AppDependencies> =
       sender: new FakeSender(),
       templateRegistry: new FakeRegistry(),
       wabaDirectory: new FakeWabaDirectory(),
+      feed: new InboxFeed(),
       ...overrides,
     },
     false,

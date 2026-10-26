@@ -12,6 +12,7 @@ import { SerialQueue } from '../../src/modules/inbox/serial-queue.ts'
 import { WebhookEventRepository } from '../../src/modules/inbox/webhook-event.repository.ts'
 import { WebhookInbox } from '../../src/modules/inbox/webhook-inbox.ts'
 import { WebhookProcessor } from '../../src/modules/inbox/webhook-processor.ts'
+import { InboxFeed } from '../../src/modules/realtime/inbox-feed.ts'
 import { ChannelDirectory } from '../../src/modules/tenancy/channel-directory.ts'
 import { withTenant } from '../../src/modules/tenancy/tenant-scope.ts'
 import { parseWebhookPayload } from '../../src/modules/whatsapp/webhook-parser.ts'
@@ -47,7 +48,7 @@ beforeAll(async () => {
   queue = new SerialQueue((id) => processor.process(id), () => undefined)
   const inbox = new WebhookInbox(repository, queue, { maxAttempts: 5, sweepGraceMs: 0, sweepBatchSize: 50 })
   app = await buildApp(
-    { db: t.db, verifyToken: VERIFY_TOKEN, appSecret: APP_SECRET, onVerifiedPayload: async (payload) => void (await inbox.receive(payload)), tokenVerifier: testVerifier(), credentials: testCredentials(t.db), sender: new FakeSender(), templateRegistry: new FakeRegistry(), wabaDirectory: new FakeWabaDirectory() },
+    { db: t.db, verifyToken: VERIFY_TOKEN, appSecret: APP_SECRET, onVerifiedPayload: async (payload) => void (await inbox.receive(payload)), tokenVerifier: testVerifier(), credentials: testCredentials(t.db), sender: new FakeSender(), templateRegistry: new FakeRegistry(), wabaDirectory: new FakeWabaDirectory(), feed: new InboxFeed() },
     false,
   )
 })

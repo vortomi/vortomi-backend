@@ -14,6 +14,8 @@ export type Executor = Database | Transaction
 
 export interface DatabaseHandle {
   db: Database
+  /** LISTEN on a channel over a connection of its own; resolves to the function that stops it. */
+  listen: (channel: string, onNotice: (payload: string) => void) => Promise<() => Promise<void>>
   close: () => Promise<void>
 }
 
@@ -25,6 +27,10 @@ export function createDatabase(url: string, maxConnections: number): DatabaseHan
   })
   return {
     db: drizzle(client, { schema }),
+    listen: async (channel, onNotice) => {
+      const request = await client.listen(channel, onNotice)
+      return () => request.unlisten()
+    },
     close: () => client.end({ timeout: 5 }),
   }
 }

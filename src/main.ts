@@ -12,6 +12,7 @@ import { SerialQueue } from './modules/inbox/serial-queue.ts'
 import { WebhookEventRepository } from './modules/inbox/webhook-event.repository.ts'
 import { WebhookInbox } from './modules/inbox/webhook-inbox.ts'
 import { WebhookProcessor } from './modules/inbox/webhook-processor.ts'
+import { InboxFeed } from './modules/realtime/inbox-feed.ts'
 import { ChannelDirectory } from './modules/tenancy/channel-directory.ts'
 import { CloudApiClient } from './modules/whatsapp/cloud-api.client.ts'
 import { TemplateService } from './modules/templates/template-service.ts'
@@ -42,6 +43,7 @@ async function main(): Promise<void> {
 
   const credentials = new ChannelCredentials(db, new CredentialCipher(env.CREDENTIALS_ENCRYPTION_KEY))
   const cloudApi = new CloudApiClient(env.GRAPH_API_VERSION)
+  const feed = new InboxFeed()
 
   // The app is built first so the processing pipeline can share its logger.
   // The webhook callback only runs after listen(), when `inbox` exists.
@@ -55,6 +57,7 @@ async function main(): Promise<void> {
       sender: cloudApi,
       templateRegistry: cloudApi,
       wabaDirectory: cloudApi,
+      feed,
       onVerifiedPayload: async (payload) => {
         await inbox.receive(payload)
       },
@@ -82,6 +85,8 @@ async function main(): Promise<void> {
     inbox.sweep().catch((error: unknown) => app.log.error({ err: error }, 'Webhook recovery sweep failed'))
   await runSweep()
   const sweepTimer = setInterval(() => void runSweep(), SWEEP_INTERVAL_MS)
+  // One LISTEN connection for the whole server; the panels' streams hang from it.
+  const stopFeed = await feed.start(database.listen)
 
   let shuttingDown = false
   const shutdown = async (signal: string) => {
@@ -89,6 +94,7 @@ async function main(): Promise<void> {
     shuttingDown = true
     app.log.info({ signal }, 'Shutting down')
     clearInterval(sweepTimer)
+    await stopFeed()
     await app.close()
     await queue.idle()
     await database.close()

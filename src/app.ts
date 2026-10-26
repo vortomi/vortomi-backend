@@ -4,6 +4,7 @@ import type { Database } from './db/client.ts'
 import { apiRoutes, publicApiRoutes } from './http/api.ts'
 import type { AccessTokenVerifier } from './modules/access/identity.ts'
 import type { ChannelCredentials } from './modules/channels/channel-credentials.ts'
+import type { InboxFeed } from './modules/realtime/inbox-feed.ts'
 import type { TemplateRegistry, WabaDirectory, WhatsAppSender } from './modules/whatsapp/cloud-api.client.ts'
 import { webhookRoutes } from './modules/whatsapp/webhook.routes.ts'
 
@@ -17,6 +18,8 @@ export interface AppDependencies {
   sender: WhatsAppSender
   templateRegistry: TemplateRegistry
   wabaDirectory: WabaDirectory
+  /** Inbox change notices for the panels' live streams. */
+  feed: InboxFeed
 }
 
 /** Secrets and signatures must never reach the logs. */
@@ -68,6 +71,7 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     sender: deps.sender,
     templateRegistry: deps.templateRegistry,
     wabaDirectory: deps.wabaDirectory,
+    feed: deps.feed,
   })
 
   return app
