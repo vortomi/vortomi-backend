@@ -40,7 +40,7 @@ const call = async (userId: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE', p
   app.inject({ method, url: `/api/tenants/${tenantId}${path}`, headers: await bearer(userId), ...(payload ? { payload } : {}) })
 const types = async (userId = who.laura, tenantId = a.tenantId) => (await call(userId, 'GET', '/inventory/variant-types', undefined, tenantId)).json<{ items: Type[] }>().items
 const products = async () =>
-  (await call(who.laura, 'GET', '/inventory/products')).json<{ items: { id: string; variantTypeId: string | null; variants: { id: string; name: string; optionId: string | null }[] }[] }>().items
+  (await call(who.laura, 'GET', '/inventory/products')).json<{ items: { id: string; variantTypeIds: string[]; variants: { id: string; name: string; optionIds: string[] }[] }[] }>().items
 
 describe('the list of types and values', () => {
   it('admins keep it; names are unique per company and values per type, ignoring case', async () => {
@@ -68,17 +68,17 @@ describe('products with a type', () => {
     const product = {
       name: 'Pastillas de freno',
       stockMode: 'units',
-      variantTypeId: marca!.id,
+      variantTypeIds: [marca!.id],
       variants: [
-        { optionId: bosch!.id, sku: 'PF-BOS', priceCents: 3800, initialStock: 2 },
-        { optionId: brembo!.id, sku: 'PF-BRE', priceCents: 4500 },
+        { optionIds: [bosch!.id], sku: 'PF-BOS', priceCents: 3800, initialStock: 2 },
+        { optionIds: [brembo!.id], sku: 'PF-BRE', priceCents: 4500 },
       ],
     }
     expect((await call(who.laura, 'POST', '/inventory/products', product)).statusCode).toBe(201)
     const [created] = await products()
     expect(created!.variants.map((v) => v.name).sort()).toEqual(['Bosch', 'Brembo'])
 
-    const again = { optionId: bosch!.id, sku: 'PF-BOS-2', priceCents: 1 }
+    const again = { optionIds: [bosch!.id], sku: 'PF-BOS-2', priceCents: 1 }
     expect((await call(who.laura, 'POST', `/inventory/products/${created!.id}/variants`, again)).json()).toEqual({ error: 'variant_option_repeated' })
   })
 
@@ -86,10 +86,10 @@ describe('products with a type', () => {
     const talla = (await call(who.laura, 'POST', '/inventory/variant-types', { name: 'Talla' })).json<Type>()
     const m = (await call(who.laura, 'POST', `/inventory/variant-types/${talla.id}/options`, { value: 'M' })).json<{ id: string }>()
     const [product] = await products()
-    expect((await call(who.laura, 'POST', `/inventory/products/${product!.id}/variants`, { optionId: m.id, sku: 'PF-M', priceCents: 1 })).json()).toEqual({
+    expect((await call(who.laura, 'POST', `/inventory/products/${product!.id}/variants`, { optionIds: [m.id], sku: 'PF-M', priceCents: 1 })).json()).toEqual({
       error: 'variant_option_not_found',
     })
-    const free = { name: 'Filtro', stockMode: 'units', variants: [{ optionId: m.id, sku: 'FI-1', priceCents: 1 }] }
+    const free = { name: 'Filtro', stockMode: 'units', variants: [{ optionIds: [m.id], sku: 'FI-1', priceCents: 1 }] }
     expect((await call(who.laura, 'POST', '/inventory/products', free)).json()).toEqual({ error: 'invalid_variant' })
   })
 
@@ -101,7 +101,7 @@ describe('products with a type', () => {
     expect(product!.variants.map((v) => v.name).sort()).toEqual(['Bosch Original', 'Brembo'])
 
     const talla = (await types()).find((ty) => ty.name === 'Talla')!
-    const change = { name: 'Pastillas de freno', categoryId: null, variantTypeId: talla.id, description: '' }
+    const change = { name: 'Pastillas de freno', categoryId: null, variantTypeIds: [talla.id], description: '' }
     expect((await call(who.laura, 'PUT', `/inventory/products/${product!.id}`, change)).json()).toEqual({ error: 'variant_type_locked' })
   })
 

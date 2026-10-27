@@ -48,6 +48,8 @@ export async function seedSampleData(db: Database, dataDir: string): Promise<See
     messages: load('messages'),
     notes: load('notes'),
     categories: load('product-categories'),
+    variantTypes: load('variant-types'),
+    variantOptions: load('variant-options'),
     products: load('products'),
     variants: load('product-variants'),
     movements: load('stock-movements'),
@@ -221,23 +223,49 @@ export async function seedSampleData(db: Database, dataDir: string): Promise<See
     for (const row of data.categories) {
       await tx.insert(s.productCategories).values({ id: id(row), tenantId: id(row, 'tenantId'), name: str(row, 'name') })
     }
+    for (const row of data.variantTypes) {
+      await tx.insert(s.variantTypes).values({ id: id(row), tenantId: id(row, 'tenantId'), name: str(row, 'name') })
+    }
+    for (const row of data.variantOptions) {
+      await tx.insert(s.variantOptions).values({ id: id(row), tenantId: id(row, 'tenantId'), typeId: id(row, 'typeId'), value: str(row, 'value') })
+    }
+    // Up to three types per product, and one value of each per variant, in the same order.
+    const ids = (row: Row, key: string) => ((row[key] as string[] | undefined) ?? []).map(sampleUuid)
+    const typesOf = new Map<string, string[]>()
     for (const row of data.products) {
+      const typeIds = ids(row, 'variantTypeIds')
+      typesOf.set(id(row), typeIds)
       await tx.insert(s.products).values({
         id: id(row),
         tenantId: id(row, 'tenantId'),
         name: str(row, 'name'),
         categoryId: optId(row, 'categoryId'),
+        variantTypeId: typeIds[0] ?? null,
+        variantType2Id: typeIds[1] ?? null,
+        variantType3Id: typeIds[2] ?? null,
         description: str(row, 'description'),
         stockMode: str(row, 'stockMode') as never,
+        saleUnit: (opt(row, 'saleUnit') ?? 'unit') as never,
+        minQuantity: (row['minQuantity'] as number | undefined) ?? 1,
+        quantityStep: (row['quantityStep'] as number | undefined) ?? 1,
         active: row['active'] as boolean,
         createdAt: date(row, 'createdAt'),
       })
     }
     for (const row of data.variants) {
+      const typeIds = typesOf.get(id(row, 'productId')) ?? []
+      const optionIds = ids(row, 'optionIds')
+      const typed = optionIds.length > 0
       await tx.insert(s.productVariants).values({
         id: id(row),
         tenantId: id(row, 'tenantId'),
         productId: id(row, 'productId'),
+        variantTypeId: typed ? (typeIds[0] ?? null) : null,
+        optionId: optionIds[0] ?? null,
+        variantType2Id: typed ? (typeIds[1] ?? null) : null,
+        option2Id: optionIds[1] ?? null,
+        variantType3Id: typed ? (typeIds[2] ?? null) : null,
+        option3Id: optionIds[2] ?? null,
         name: str(row, 'name'),
         sku: str(row, 'sku'),
         priceCents: row['priceCents'] as number,

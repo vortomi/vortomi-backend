@@ -1,4 +1,5 @@
-import { and, asc, count, eq, isNotNull } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, sql } from 'drizzle-orm'
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { z } from 'zod'
 import { productVariants, variantOptions, variantTypes } from '../../db/schema/index.ts'
 import type { MemberScope } from '../access/member-scope.ts'
@@ -37,12 +38,15 @@ export class VariantTypeService {
         .where(eq(variantOptions.tenantId, tenantId))
         .orderBy(asc(variantOptions.value)),
       tx
-        .select({ optionId: productVariants.optionId, total: count() })
+        .select({ first: productVariants.optionId, second: productVariants.option2Id, third: productVariants.option3Id })
         .from(productVariants)
-        .where(and(eq(productVariants.tenantId, tenantId), isNotNull(productVariants.optionId)))
-        .groupBy(productVariants.optionId),
+        .where(and(eq(productVariants.tenantId, tenantId), isNotNull(productVariants.optionId))),
     ])
-    const totals = new Map(usage.map((u) => [u.optionId, u.total]))
+    // A value may be any of a variant's three (Talla in one product, second type in another).
+    const totals = new Map<string, number>()
+    for (const variant of usage) {
+      for (const optionId of [variant.first, variant.second, variant.third]) if (optionId) totals.set(optionId, (totals.get(optionId) ?? 0) + 1)
+    }
     return types.map((type) => ({
       ...type,
       options: options.filter((o) => o.typeId === type.id).map(({ id, value }) => ({ id, value, variantCount: totals.get(id) ?? 0 })),
@@ -82,7 +86,7 @@ export class VariantTypeService {
     return { ...row!, variantCount: 0 }
   }
 
-  /** The variants that use the value are renamed with it, in the same transaction. */
+  /** The variants that use the value are renamed with it ("M / Rojo"), in the same transaction. */
   async renameOption(scope: MemberScope, id: string, value: string) {
     const { tx, tenantId } = scope
     const [row] = await tx
@@ -91,7 +95,12 @@ export class VariantTypeService {
       .where(and(eq(variantOptions.tenantId, tenantId), eq(variantOptions.id, id)))
       .returning({ id: variantOptions.id, value: variantOptions.value })
     if (!row) throw new VariantOptionNotFoundError()
-    await tx.update(productVariants).set({ name: value }).where(and(eq(productVariants.tenantId, tenantId), eq(productVariants.optionId, id)))
+    const valueOf = (column: AnyPgColumn) =>
+      sql`(select o.value from variant_options o where o.tenant_id = ${productVariants.tenantId} and o.id = ${column})`
+    await tx
+      .update(productVariants)
+      .set({ name: sql`concat_ws(' / ', ${valueOf(productVariants.optionId)}, ${valueOf(productVariants.option2Id)}, ${valueOf(productVariants.option3Id)})` })
+      .where(and(eq(productVariants.tenantId, tenantId), sql`${id}::uuid in (${productVariants.optionId}, ${productVariants.option2Id}, ${productVariants.option3Id})`))
     return row
   }
 

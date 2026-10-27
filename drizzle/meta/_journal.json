@@ -204,6 +204,20 @@
       "when": 1793109954584,
       "tag": "0028_exchange_rates_security",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793113628337,
+      "tag": "0029_sale_units_and_combined_variants",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1793113638640,
+      "tag": "0030_combined_variants_security",
+      "breakpoints": true
     }
   ]
 }

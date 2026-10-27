@@ -1,6 +1,13 @@
 import { CompanyUnavailableError, NotAMemberError } from '../modules/access/member-scope.ts'
 import { CategoryNotFoundError } from '../modules/inventory/category-service.ts'
-import { InvalidVariantError, InventoryNotFoundError, MovementNotAllowedError } from '../modules/inventory/inventory-service.ts'
+import {
+  FractionalStockError,
+  InvalidQuantityError,
+  InvalidVariantError,
+  InventoryNotFoundError,
+  MovementNotAllowedError,
+  VariantTypesLockedError,
+} from '../modules/inventory/inventory-service.ts'
 import { VariantOptionNotFoundError, VariantTypeNotFoundError } from '../modules/inventory/variant-type-service.ts'
 import { ChannelNotAttendedError, ContactNotFoundError, OwnerNotMemberError, UnknownTagError } from '../modules/contacts/contact-service.ts'
 import { TagNotFoundError } from '../modules/contacts/tag-service.ts'
@@ -38,6 +45,9 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [VariantTypeNotFoundError, 404, 'variant_type_not_found'],
   [VariantOptionNotFoundError, 404, 'variant_option_not_found'],
   [InvalidVariantError, 422, 'invalid_variant'],
+  [VariantTypesLockedError, 409, 'variant_type_locked'],
+  [InvalidQuantityError, 422, 'invalid_quantity'],
+  [FractionalStockError, 409, 'fractional_stock'],
   [MemberNotFoundError, 404, 'member_not_found'],
   [TenantNotFoundError, 404, 'tenant_not_found'],
   [NoChannelError, 409, 'no_channel'],
@@ -91,6 +101,12 @@ const CONSTRAINT_CONFLICTS: Record<string, string> = {
   products_variant_type_fk: 'variant_type_in_use',
   product_variants_option_fk: 'variant_option_in_use',
   product_variants_product_type_fk: 'variant_type_locked',
+  product_variants_product_type_2_fk: 'variant_type_locked',
+  product_variants_product_type_3_fk: 'variant_type_locked',
+  product_variants_option_2_fk: 'variant_option_in_use',
+  product_variants_option_3_fk: 'variant_option_in_use',
+  products_variant_type_2_fk: 'variant_type_in_use',
+  products_variant_type_3_fk: 'variant_type_in_use',
   product_variants_stock_check: 'insufficient_stock',
   stock_movements_sign_check: 'invalid_movement',
 }

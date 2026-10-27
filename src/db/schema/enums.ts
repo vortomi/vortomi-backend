@@ -83,6 +83,15 @@ export type RateOrigin = (typeof RATE_ORIGINS)[number]
 export const STOCK_MODES = ['availability', 'units'] as const
 export type StockMode = (typeof STOCK_MODES)[number]
 
+/**
+ * How a product is sold: its price is per one of these and quantities count in it. A closed
+ * list kept by the platform (companies pick, never type). Pieces, grams and visits count
+ * whole; weight, length, area, volume and hours take up to 3 decimals (DECIMAL_SALE_UNITS).
+ */
+export const SALE_UNITS = ['unit', 'pair', 'dozen', 'box', 'pack', 'roll', 'kg', 'g', 'm', 'm2', 'l', 'hour', 'service', 'session'] as const
+export type SaleUnit = (typeof SALE_UNITS)[number]
+export const DECIMAL_SALE_UNITS: readonly SaleUnit[] = ['kg', 'm', 'm2', 'l', 'hour']
+
 /** Every stock change is one of these. Sign is fixed by kind (stock_movements_sign_check). */
 export const STOCK_MOVEMENT_KINDS = ['initial', 'purchase', 'sale', 'adjustment', 'loss', 'return'] as const
 export type StockMovementKind = (typeof STOCK_MOVEMENT_KINDS)[number]
