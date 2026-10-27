@@ -14,6 +14,9 @@ import {
   WhatsAppApiError,
   type WhatsAppSender,
 } from '../../src/modules/whatsapp/cloud-api.client.ts'
+import type { BcvRate } from '../../src/modules/exchange-rates/bcv-page.ts'
+import { BcvRateService } from '../../src/modules/exchange-rates/bcv-rate.service.ts'
+import { BcvReadError, type BcvSource } from '../../src/modules/exchange-rates/bcv-source.ts'
 import { InboxFeed } from '../../src/modules/realtime/inbox-feed.ts'
 import { testVerifier } from './auth.ts'
 import { APP_SECRET, VERIFY_TOKEN } from './meta-payloads.ts'
@@ -65,6 +68,19 @@ export class FakeWabaDirectory implements WabaDirectory {
   }
 }
 
+/** Stands in for bcv.org.ve: answers `next`, a rate or the reason it could not be read. */
+export class FakeBcvSource implements BcvSource {
+  next: BcvRate | string = 'la página del BCV no respondió.'
+  reads = 0
+
+  read(): Promise<BcvRate> {
+    this.reads++
+    return typeof this.next === 'string' ? Promise.reject(new BcvReadError(this.next)) : Promise.resolve(this.next)
+  }
+}
+
+export const silentLog = { error: () => undefined, warn: () => undefined }
+
 export const testCredentials = (db: Database) => new ChannelCredentials(db, new CredentialCipher(randomBytes(32).toString('base64')))
 
 /** The real app with test doubles only at the edges: Supabase keys, Meta, the credential key. */
@@ -81,6 +97,7 @@ export function buildTestApp(db: Database, overrides: Partial<AppDependencies> =
       templateRegistry: new FakeRegistry(),
       wabaDirectory: new FakeWabaDirectory(),
       feed: new InboxFeed(),
+      bcv: new BcvRateService(db, new FakeBcvSource(), silentLog),
       ...overrides,
     },
     false,

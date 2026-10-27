@@ -130,7 +130,7 @@ export class OutboundService {
       const accessToken = await this.credentials.accessTokenFor(origin.tenantId, prepared.target.channelAccountId)
       result = accessToken ? await prepared.deliver(prepared.target, accessToken) : { error: 'no_credentials' }
     } catch (error) {
-      result = { error: describe(error) }
+      result = { error: describeSendError(error) }
     }
 
     await withTenant(this.db, origin.tenantId, ({ tx, tenantId }) =>
@@ -206,7 +206,7 @@ export class ConcurrentSendError extends Error {
 }
 
 /** What gets stored about a failed send: Meta's code and message, never the request. */
-function describe(error: unknown): string {
+export function describeSendError(error: unknown): string {
   const text = error instanceof WhatsAppApiError ? `meta_${error.metaCode ?? error.httpStatus ?? 'network'}: ${error.message}` : 'unexpected_error'
   return text.slice(0, MAX_ERROR_LENGTH)
 }

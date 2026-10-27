@@ -1,6 +1,6 @@
 import { type SQL, and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { contactTags, contacts, pipelineStages, tags } from '../../db/schema/index.ts'
+import { contactTags, contacts, memberships, pipelineStages, tags } from '../../db/schema/index.ts'
 import { type Cursor, encodeCursor, likePattern } from '../../shared/pagination.ts'
 import type { MemberScope } from '../access/member-scope.ts'
 import { canAttend, visibleContacts } from '../conversations/visibility.ts'
@@ -28,6 +28,26 @@ export class ChannelNotAttendedError extends Error {
   }
 }
 
+/** The person put in charge is not an active member of the company. */
+export class OwnerNotMemberError extends Error {
+  constructor() {
+    super('The owner must be an active member of the company')
+    this.name = 'OwnerNotMemberError'
+  }
+}
+
+/** Facts the team keeps about a customer: up to 30, each key once. */
+export const attributesInput = z
+  .array(
+    z.object({
+      key: z.string().regex(/^[a-z0-9_-]{1,40}$/),
+      label: z.string().trim().min(1).max(40),
+      value: z.string().trim().max(500),
+    }),
+  )
+  .max(30)
+  .refine((list) => new Set(list.map((a) => a.key)).size === list.length, 'each key once')
+
 /** "+58 412-555-0101" -> "584125550101": WhatsApp ids are the international number, digits only. */
 export const waIdInput = z
   .string()
@@ -40,6 +60,8 @@ export const contactInput = z.object({
   name: z.string().trim().min(1).max(80).nullable().default(null),
   stageId: z.uuid().nullable().default(null),
   tagIds: z.array(z.uuid()).max(20).default([]),
+  ownerUserId: z.uuid().nullable().default(null),
+  attributes: attributesInput.default([]),
 })
 export type ContactInput = z.infer<typeof contactInput>
 
@@ -66,6 +88,8 @@ const columns = {
   displayName: contacts.displayName,
   stageId: contacts.stageId,
   quoteCents: contacts.quoteCents,
+  ownerUserId: contacts.ownerUserId,
+  attributes: contacts.attributes,
   lastInboundAt: contacts.lastInboundAt,
   createdAt: contacts.createdAt,
   tagIds: sql<string[]>`coalesce((
@@ -132,9 +156,18 @@ export class ContactService {
       if (!stage) throw new StageNotFoundError()
     }
     const tagIds = await this.knownTags(scope, input.tagIds)
+    if (input.ownerUserId) await this.activeMember(scope, input.ownerUserId)
     const [row] = await scope.tx
       .insert(contacts)
-      .values({ tenantId: scope.tenantId, channelAccountId: input.channelAccountId, waId: input.waId, name: input.name, stageId: input.stageId })
+      .values({
+        tenantId: scope.tenantId,
+        channelAccountId: input.channelAccountId,
+        waId: input.waId,
+        name: input.name,
+        stageId: input.stageId,
+        ownerUserId: input.ownerUserId,
+        attributes: input.attributes,
+      })
       .returning({ id: contacts.id })
     if (tagIds.length) await scope.tx.insert(contactTags).values(tagIds.map((tagId) => ({ tenantId: scope.tenantId, contactId: row!.id, tagId })))
     return this.get(scope, row!.id)
@@ -180,6 +213,34 @@ export class ContactService {
     if (unique.length) {
       await scope.tx.insert(contactTags).values(unique.map((tagId) => ({ tenantId: scope.tenantId, contactId, tagId })))
     }
+  }
+
+  /** Who follows the customer up; null leaves it with nobody. Only active members of the company. */
+  async setOwner(scope: MemberScope, contactId: string, ownerUserId: string | null) {
+    await this.get(scope, contactId)
+    if (ownerUserId) await this.activeMember(scope, ownerUserId)
+    await scope.tx
+      .update(contacts)
+      .set({ ownerUserId })
+      .where(and(eq(contacts.tenantId, scope.tenantId), eq(contacts.id, contactId)))
+  }
+
+  /** Replaces the contact's extra facts with exactly `attributes`. */
+  async setAttributes(scope: MemberScope, contactId: string, attributes: z.infer<typeof attributesInput>) {
+    await this.get(scope, contactId)
+    await scope.tx
+      .update(contacts)
+      .set({ attributes })
+      .where(and(eq(contacts.tenantId, scope.tenantId), eq(contacts.id, contactId)))
+  }
+
+  /** The composite key already keeps the owner in this company; this also keeps them active. */
+  private async activeMember(scope: MemberScope, userId: string): Promise<void> {
+    const [member] = await scope.tx
+      .select({ status: memberships.status })
+      .from(memberships)
+      .where(and(eq(memberships.tenantId, scope.tenantId), eq(memberships.userId, userId)))
+    if (member?.status !== 'active') throw new OwnerNotMemberError()
   }
 
   /** The distinct tag ids, once checked they are all of this company. */

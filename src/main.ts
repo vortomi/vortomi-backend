@@ -12,6 +12,9 @@ import { SerialQueue } from './modules/inbox/serial-queue.ts'
 import { WebhookEventRepository } from './modules/inbox/webhook-event.repository.ts'
 import { WebhookInbox } from './modules/inbox/webhook-inbox.ts'
 import { WebhookProcessor } from './modules/inbox/webhook-processor.ts'
+import { BcvRateService } from './modules/exchange-rates/bcv-rate.service.ts'
+import { HttpBcvSource } from './modules/exchange-rates/bcv-source.ts'
+import { AwayReplyService } from './modules/messaging/away-reply.ts'
 import { InboxFeed } from './modules/realtime/inbox-feed.ts'
 import { ChannelDirectory } from './modules/tenancy/channel-directory.ts'
 import { CloudApiClient } from './modules/whatsapp/cloud-api.client.ts'
@@ -44,6 +47,9 @@ async function main(): Promise<void> {
   const credentials = new ChannelCredentials(db, new CredentialCipher(env.CREDENTIALS_ENCRYPTION_KEY))
   const cloudApi = new CloudApiClient(env.GRAPH_API_VERSION)
   const feed = new InboxFeed()
+  // Its logger is the app's: bound once the app exists (only used after listen()).
+  const bcvLog = { warn: (message: string) => app.log.warn(message), error: (obj: object, message: string) => app.log.error(obj, message) }
+  const bcv = new BcvRateService(db, new HttpBcvSource(bcvLog), bcvLog)
 
   // The app is built first so the processing pipeline can share its logger.
   // The webhook callback only runs after listen(), when `inbox` exists.
@@ -58,6 +64,7 @@ async function main(): Promise<void> {
       templateRegistry: cloudApi,
       wabaDirectory: cloudApi,
       feed,
+      bcv,
       onVerifiedPayload: async (payload) => {
         await inbox.receive(payload)
       },
@@ -72,6 +79,7 @@ async function main(): Promise<void> {
     new IngestService(),
     new MessageStatusService(),
     new TemplateService(db, credentials, cloudApi),
+    new AwayReplyService(db, credentials, cloudApi, app.log),
   )
   const processor = new WebhookProcessor(repository, parseWebhookPayload, router, app.log)
   const queue = new SerialQueue(
@@ -87,6 +95,7 @@ async function main(): Promise<void> {
   const sweepTimer = setInterval(() => void runSweep(), SWEEP_INTERVAL_MS)
   // One LISTEN connection for the whole server; the panels' streams hang from it.
   const stopFeed = await feed.start(database.listen)
+  const stopBcv = bcv.start(env.BCV_CHECK_INTERVAL_MS)
 
   let shuttingDown = false
   const shutdown = async (signal: string) => {
@@ -95,6 +104,7 @@ async function main(): Promise<void> {
     app.log.info({ signal }, 'Shutting down')
     clearInterval(sweepTimer)
     await stopFeed()
+    await stopBcv()
     await app.close()
     await queue.idle()
     await database.close()

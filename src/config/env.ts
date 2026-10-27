@@ -27,6 +27,9 @@ const envSchema = z.object({
   META_APP_SECRET: z.string().min(16),
   // Invented by us and typed into Meta when subscribing the webhook.
   WEBHOOK_VERIFY_TOKEN: z.string().min(24),
+
+  // How often the BCV rate is read for the companies that use it: 1 hour; 0 turns it off.
+  BCV_CHECK_INTERVAL_MS: z.coerce.number().int().min(0).max(86_400_000).default(3_600_000),
 })
 
 export type Env = z.infer<typeof envSchema>

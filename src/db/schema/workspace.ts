@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
-import { check, integer, jsonb, numeric, pgTable, text, uniqueIndex, unique, uuid } from 'drizzle-orm/pg-core'
+import { check, integer, jsonb, pgTable, text, uniqueIndex, unique, uuid } from 'drizzle-orm/pg-core'
 import { createdAtColumn, oneOf, tenantIdColumn, timestamptz, uuidIdColumn } from './columns.ts'
-import { WORK_MODES } from './enums.ts'
+import { RATE_SOURCES, WORK_MODES } from './enums.ts'
 import { tenants } from './tenancy.ts'
 
 // How each company works: settings, canned replies and its sales pipeline.
@@ -18,15 +18,16 @@ export const tenantSettings = pgTable(
     businessHours: jsonb('business_hours').$type<BusinessDay[]>().notNull().default(sql`'[]'::jsonb`),
     // Sent when someone writes outside business hours. Empty = disabled.
     awayMessage: text('away_message').notNull().default(''),
-    // Bolívares per dollar the company uses today; null hides Bs prices.
-    exchangeRateVes: numeric('exchange_rate_ves', { precision: 14, scale: 4, mode: 'number' }),
+    // Where the company's exchange rate comes from: read from the BCV every hour, or typed by an
+    // admin (exchange-rates.ts keeps every rate).
+    rateSource: text('rate_source', { enum: RATE_SOURCES }).notNull().default('custom'),
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   (t) => [
     check('tenant_settings_work_mode_check', oneOf(t.workMode, WORK_MODES)),
     check('tenant_settings_business_hours_check', sql`jsonb_typeof(${t.businessHours}) = 'array'`),
     check('tenant_settings_away_message_check', sql`length(${t.awayMessage}) <= 1024`),
-    check('tenant_settings_exchange_rate_check', sql`${t.exchangeRateVes} is null or ${t.exchangeRateVes} > 0`),
+    check('tenant_settings_rate_source_check', oneOf(t.rateSource, RATE_SOURCES)),
   ],
 )
 

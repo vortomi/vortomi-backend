@@ -48,7 +48,7 @@ beforeAll(async () => {
   queue = new SerialQueue((id) => processor.process(id), () => undefined)
   const inbox = new WebhookInbox(repository, queue, { maxAttempts: 5, sweepGraceMs: 0, sweepBatchSize: 50 })
   app = await buildApp(
-    { db: t.db, verifyToken: VERIFY_TOKEN, appSecret: APP_SECRET, onVerifiedPayload: async (payload) => void (await inbox.receive(payload)), tokenVerifier: testVerifier(), credentials: testCredentials(t.db), sender: new FakeSender(), templateRegistry: new FakeRegistry(), wabaDirectory: new FakeWabaDirectory(), feed: new InboxFeed() },
+    { db: t.db, verifyToken: VERIFY_TOKEN, appSecret: APP_SECRET, onVerifiedPayload: async (payload) => void (await inbox.receive(payload)), tokenVerifier: testVerifier(), credentials: testCredentials(t.db), sender: new FakeSender(), templateRegistry: new FakeRegistry(), wabaDirectory: new FakeWabaDirectory(), feed: new InboxFeed(), bcv: { refresh: () => Promise.resolve() } },
     false,
   )
 })

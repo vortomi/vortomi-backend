@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { boolean, check, foreignKey, index, integer, pgTable, pgView, text, unique, uuid } from 'drizzle-orm/pg-core'
+import { boolean, check, foreignKey, index, integer, jsonb, pgTable, pgView, text, unique, uuid } from 'drizzle-orm/pg-core'
 import { createdAtColumn, oneOf, serialIdColumn, tenantIdColumn, timestamptz, uuidIdColumn } from './columns.ts'
 import { CONVERSATION_STATUSES, DELIVERY_STATUSES, MESSAGE_AUTHORS, MESSAGE_DIRECTIONS, MESSAGE_TYPES } from './enums.ts'
 import { memberships } from './access.ts'
@@ -26,6 +26,10 @@ export const contacts = pgTable(
     // Sales pipeline (v1: one open opportunity per contact, documentations/05).
     stageId: uuid('stage_id'),
     quoteCents: integer('quote_cents'),
+    // The team member who follows this customer up; a member of the same company. Null = nobody.
+    ownerUserId: uuid('owner_user_id'),
+    // Facts the team keeps about the customer: [{ key, label, value }], validated by the API.
+    attributes: jsonb('attributes').$type<ContactAttribute[]>().notNull().default(sql`'[]'::jsonb`),
     // Opens the 24 h customer service window.
     lastInboundAt: timestamptz('last_inbound_at'),
     createdAt: createdAtColumn(),
@@ -41,8 +45,17 @@ export const contacts = pgTable(
     check('contacts_wa_id_check', sql`${t.waId} ~ '^[0-9]+$'`),
     foreignKey({ name: 'contacts_stage_fk', columns: [t.tenantId, t.stageId], foreignColumns: [pipelineStages.tenantId, pipelineStages.id] }),
     check('contacts_quote_check', sql`${t.quoteCents} is null or ${t.quoteCents} >= 0`),
+    foreignKey({ name: 'contacts_owner_fk', columns: [t.tenantId, t.ownerUserId], foreignColumns: [memberships.tenantId, memberships.userId] }),
+    check('contacts_attributes_check', sql`jsonb_typeof(${t.attributes}) = 'array' and jsonb_array_length(${t.attributes}) <= 30`),
   ],
 )
+
+export interface ContactAttribute {
+  /** Stable id of the field ("talla", "direccion"); unique within the contact. */
+  key: string
+  label: string
+  value: string
+}
 
 /** One conversation per contact in v1 (documentations/05: one opportunity per contact). */
 export const conversations = pgTable(

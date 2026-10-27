@@ -2,7 +2,7 @@ import { CompanyUnavailableError, NotAMemberError } from '../modules/access/memb
 import { CategoryNotFoundError } from '../modules/inventory/category-service.ts'
 import { InvalidVariantError, InventoryNotFoundError, MovementNotAllowedError } from '../modules/inventory/inventory-service.ts'
 import { VariantOptionNotFoundError, VariantTypeNotFoundError } from '../modules/inventory/variant-type-service.ts'
-import { ChannelNotAttendedError, ContactNotFoundError, UnknownTagError } from '../modules/contacts/contact-service.ts'
+import { ChannelNotAttendedError, ContactNotFoundError, OwnerNotMemberError, UnknownTagError } from '../modules/contacts/contact-service.ts'
 import { TagNotFoundError } from '../modules/contacts/tag-service.ts'
 import { NoChannelError, TenantNotFoundError, WabaTakenError } from '../modules/platform/tenant-admin-service.ts'
 import { ChannelNotFoundError } from '../modules/team/channel-list.ts'
@@ -58,6 +58,7 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [AssigneeCannotAttendError, 422, 'assignee_cannot_attend'],
   [MentionNotMemberError, 422, 'mention_not_member'],
   [UnknownTagError, 422, 'unknown_tag'],
+  [OwnerNotMemberError, 422, 'owner_not_member'],
   [ChannelNotAttendedError, 403, 'channel_not_attended'],
   [ServiceWindowClosedError, 422, 'service_window_closed'],
   [TemplateNotUsableError, 422, 'template_not_usable'],
@@ -74,6 +75,8 @@ const CONSTRAINT_CONFLICTS: Record<string, string> = {
   contacts_tenant_channel_wa_id_key: 'contact_exists',
   // An admin naming a number of another company: the composite key refuses it.
   contacts_channel_fk: 'unknown_channel',
+  // A person of another company: the service refuses it first; the composite key would too.
+  contacts_owner_fk: 'owner_not_member',
   message_templates_tenant_waba_name_language_key: 'template_exists',
   product_variants_tenant_sku_key: 'sku_taken',
   product_categories_tenant_name_key: 'category_name_taken',

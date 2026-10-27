@@ -33,7 +33,7 @@ afterAll(async () => {
   await t.close()
 })
 
-async function call(userId: string, method: 'GET' | 'POST', path: string, payload?: object) {
+async function call(userId: string, method: 'GET' | 'POST' | 'PUT', path: string, payload?: object) {
   return app.inject({ method, url: `/api/tenants/${a.tenantId}${path}`, headers: await bearer(userId), ...(payload ? { payload } : {}) })
 }
 
@@ -74,5 +74,37 @@ describe('importing a list', () => {
     expect((await call(who.laura, 'POST', '/contacts/import', { channelAccountId: a.channelAccountId, rows })).json()).toEqual({ error: 'unknown_tag' })
     const list = (await call(who.laura, 'GET', '/contacts')).json<{ items: { waId: string }[] }>().items
     expect(list.some((c) => c.waId === '584125550301')).toBe(false)
+  })
+})
+
+describe('who follows the customer up, and what the team knows of them', () => {
+  const facts = [
+    { key: 'talla', label: 'Talla', value: 'M' },
+    { key: 'direccion', label: 'Dirección', value: 'Av. Bolívar, Valencia' },
+  ]
+
+  it('created with an owner and extra facts; both read back', async () => {
+    const payload = { channelAccountId: a.channelAccountId, waId: '584125550401', ownerUserId: who.carlos, attributes: facts }
+    expect((await call(who.laura, 'POST', '/contacts', payload)).json()).toMatchObject({ ownerUserId: who.carlos, attributes: facts })
+  })
+
+  it('anyone who sees the contact changes them; the owner must be an active member of the company', async () => {
+    const id = (await call(who.carlos, 'POST', '/contacts', { channelAccountId: a.channelAccountId, waId: '584125550402' })).json<{ id: string }>().id
+    expect((await call(who.carlos, 'PUT', `/contacts/${id}/owner`, { ownerUserId: who.laura })).statusCode).toBe(204)
+    expect((await call(who.carlos, 'PUT', `/contacts/${id}/attributes`, { attributes: facts })).statusCode).toBe(204)
+    expect((await call(who.carlos, 'GET', `/contacts/${id}`)).json()).toMatchObject({ ownerUserId: who.laura, attributes: facts })
+
+    const outsider = await seedUser(t.db, 'Externo')
+    expect((await call(who.laura, 'PUT', `/contacts/${id}/owner`, { ownerUserId: outsider })).json()).toEqual({ error: 'owner_not_member' })
+    expect((await call(who.laura, 'PUT', `/contacts/${id}/owner`, { ownerUserId: null })).statusCode).toBe(204)
+    expect((await call(who.laura, 'GET', `/contacts/${id}`)).json()).toMatchObject({ ownerUserId: null })
+  })
+
+  it('refuses a repeated field and more than 30', async () => {
+    const id = (await call(who.laura, 'POST', '/contacts', { channelAccountId: a.channelAccountId, waId: '584125550403' })).json<{ id: string }>().id
+    const twice = [facts[0], { ...facts[0], value: 'L' }]
+    expect((await call(who.laura, 'PUT', `/contacts/${id}/attributes`, { attributes: twice })).statusCode).toBe(400)
+    const many = Array.from({ length: 31 }, (_, i) => ({ key: `k${i}`, label: `Dato ${i}`, value: 'x' }))
+    expect((await call(who.laura, 'PUT', `/contacts/${id}/attributes`, { attributes: many })).statusCode).toBe(400)
   })
 })

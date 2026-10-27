@@ -5,7 +5,7 @@ import { TAG_TONES } from '../../db/schema/enums.ts'
 import { asAdmin, inCompany } from '../../http/company-scope.ts'
 import { parseInput } from '../../http/validation.ts'
 import { PAGE_SIZE, decodeCursor } from '../../shared/pagination.ts'
-import { type ContactService, contactInput, importInput } from './contact-service.ts'
+import { type ContactService, attributesInput, contactInput, importInput } from './contact-service.ts'
 import type { TagService } from './tag-service.ts'
 
 export interface ContactRoutesOptions {
@@ -23,6 +23,8 @@ const listQuery = z.object({
 })
 const renameBody = z.object({ name: z.string().trim().min(1).max(80).nullable() })
 const tagsBody = z.object({ tagIds: z.array(z.uuid()).max(20) })
+const ownerBody = z.object({ ownerUserId: z.uuid().nullable() })
+const attributesBody = z.object({ attributes: attributesInput })
 const tagBody = z.object({ name: z.string().trim().min(1).max(40), tone: z.enum(TAG_TONES).default('neutral') })
 
 /** /tenants/:tenantId/contacts and /tenants/:tenantId/tags. */
@@ -59,7 +61,21 @@ export const contactRoutes: FastifyPluginCallback<ContactRoutesOptions> = (app, 
     return reply.code(204).send()
   })
 
-  app.get('/tags', (request) => inCompany(db, request, async (scope) => ({ items: await tags.list(scope) })))
+  app.put('/contacts/:contactId/owner', async (request, reply) => {
+    await inCompany(db, request, (scope) =>
+      contacts.setOwner(scope, parseInput(contactParams, request.params).contactId, parseInput(ownerBody, request.body).ownerUserId),
+    )
+    return reply.code(204).send()
+  })
+
+  app.put('/contacts/:contactId/attributes', async (request, reply) => {
+    await inCompany(db, request, (scope) =>
+      contacts.setAttributes(scope, parseInput(contactParams, request.params).contactId, parseInput(attributesBody, request.body).attributes),
+    )
+    return reply.code(204).send()
+  })
+
+  app.get('/tags',(request) => inCompany(db, request, async (scope) => ({ items: await tags.list(scope) })))
 
   app.post('/tags', async (request, reply) => {
     const tag = await asAdmin(db, request, (scope) => tags.create(scope, parseInput(tagBody, request.body)))

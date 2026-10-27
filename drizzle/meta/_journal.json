@@ -183,6 +183,27 @@
       "when": 1793054902493,
       "tag": "0025_contact_stage_events_security",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793109944647,
+      "tag": "0026_rates_and_contact_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793109952586,
+      "tag": "0027_drop_settings_exchange_rate",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1793109954584,
+      "tag": "0028_exchange_rates_security",
+      "breakpoints": true
     }
   ]
 }

@@ -71,6 +71,14 @@ export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number]
 export const TEMPLATE_STATUSES = ['draft', 'pending', 'approved', 'rejected', 'paused', 'disabled'] as const
 export type TemplateStatus = (typeof TEMPLATE_STATUSES)[number]
 
+/** bcv: read from the Banco Central de Venezuela every hour. custom: typed by an admin. */
+export const RATE_SOURCES = ['bcv', 'custom'] as const
+export type RateSource = (typeof RATE_SOURCES)[number]
+
+/** Where one row of a company's rate history came from. */
+export const RATE_ORIGINS = ['bcv', 'manual'] as const
+export type RateOrigin = (typeof RATE_ORIGINS)[number]
+
 /** availability: an on/off switch (made to order, services). units: counted stock. */
 export const STOCK_MODES = ['availability', 'units'] as const
 export type StockMode = (typeof STOCK_MODES)[number]

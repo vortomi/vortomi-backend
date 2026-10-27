@@ -19,7 +19,6 @@ export const settingsInput = z.object({
     .max(7)
     .refine((days) => new Set(days.map((d) => d.day)).size === days.length, 'one entry per day'),
   awayMessage: z.string().trim().max(1024),
-  exchangeRateVes: z.number().positive().max(1e9).nullable(),
 })
 export type SettingsInput = z.infer<typeof settingsInput>
 
@@ -28,7 +27,7 @@ export const profileInput = z.object({ name: z.string().trim().min(1).max(80), t
 export type ProfileInput = z.infer<typeof profileInput>
 
 /** What a company that never saved its settings works with. */
-const DEFAULTS: SettingsInput = { workMode: 'sales_and_support', businessHours: [], awayMessage: '', exchangeRateVes: null }
+const DEFAULTS: SettingsInput = { workMode: 'sales_and_support', businessHours: [], awayMessage: '' }
 
 export class SettingsService {
   async get(scope: MemberScope): Promise<SettingsInput> {
@@ -37,7 +36,6 @@ export class SettingsService {
         workMode: tenantSettings.workMode,
         businessHours: tenantSettings.businessHours,
         awayMessage: tenantSettings.awayMessage,
-        exchangeRateVes: tenantSettings.exchangeRateVes,
       })
       .from(tenantSettings)
       .where(eq(tenantSettings.tenantId, scope.tenantId))

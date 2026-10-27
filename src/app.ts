@@ -4,6 +4,7 @@ import type { Database } from './db/client.ts'
 import { apiRoutes, publicApiRoutes } from './http/api.ts'
 import type { AccessTokenVerifier } from './modules/access/identity.ts'
 import type { ChannelCredentials } from './modules/channels/channel-credentials.ts'
+import type { BcvRateService } from './modules/exchange-rates/bcv-rate.service.ts'
 import type { InboxFeed } from './modules/realtime/inbox-feed.ts'
 import type { TemplateRegistry, WabaDirectory, WhatsAppSender } from './modules/whatsapp/cloud-api.client.ts'
 import { webhookRoutes } from './modules/whatsapp/webhook.routes.ts'
@@ -20,6 +21,8 @@ export interface AppDependencies {
   wabaDirectory: WabaDirectory
   /** Inbox change notices for the panels' live streams. */
   feed: InboxFeed
+  /** Reads the BCV for the companies that chose its rate. */
+  bcv: Pick<BcvRateService, 'refresh'>
 }
 
 /** Secrets and signatures must never reach the logs. */
@@ -72,6 +75,7 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     templateRegistry: deps.templateRegistry,
     wabaDirectory: deps.wabaDirectory,
     feed: deps.feed,
+    bcv: deps.bcv,
   })
 
   return app

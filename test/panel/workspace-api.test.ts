@@ -69,19 +69,18 @@ describe('settings', () => {
       workMode: 'sales_and_support',
       businessHours: [],
       awayMessage: '',
-      exchangeRateVes: null,
     })
   })
 
   it('only admins change them', async () => {
-    const payload = { workMode: 'support_only', businessHours: weekdays, awayMessage: 'Ya cerramos', exchangeRateVes: 185.5 }
+    const payload = { workMode: 'support_only', businessHours: weekdays, awayMessage: 'Ya cerramos' }
     expect((await call(who.carlos, 'PUT', '/settings', payload)).json()).toEqual({ error: 'admin_required' })
     expect((await call(who.laura, 'PUT', '/settings', payload)).json()).toEqual(payload)
-    expect((await call(who.carlos, 'GET', '/settings')).json()).toMatchObject({ workMode: 'support_only', exchangeRateVes: 185.5 })
+    expect((await call(who.carlos, 'GET', '/settings')).json()).toMatchObject({ workMode: 'support_only', awayMessage: 'Ya cerramos' })
   })
 
   it('rejects impossible business hours', async () => {
-    const base = { workMode: 'sales_and_support', awayMessage: '', exchangeRateVes: null }
+    const base = { workMode: 'sales_and_support', awayMessage: '' }
     expect((await call(who.laura, 'PUT', '/settings', { ...base, businessHours: [{ day: 1, open: '18:00', close: '08:00' }] })).statusCode).toBe(400)
     expect((await call(who.laura, 'PUT', '/settings', { ...base, businessHours: [weekdays[0], weekdays[0]] })).statusCode).toBe(400)
     expect((await call(who.laura, 'PUT', '/settings', { ...base, businessHours: [{ day: 7, open: null, close: null }] })).statusCode).toBe(400)

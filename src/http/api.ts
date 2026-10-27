@@ -29,6 +29,9 @@ import { SettingsService } from '../modules/workspace/settings-service.ts'
 import { workspaceRoutes } from '../modules/workspace/workspace.routes.ts'
 import { TemplateService } from '../modules/templates/template-service.ts'
 import { templateRoutes } from '../modules/templates/templates.routes.ts'
+import type { BcvRateService } from '../modules/exchange-rates/bcv-rate.service.ts'
+import { ExchangeRateService } from '../modules/exchange-rates/exchange-rate-service.ts'
+import { exchangeRateRoutes } from '../modules/exchange-rates/exchange-rates.routes.ts'
 import type { InboxFeed } from '../modules/realtime/inbox-feed.ts'
 import { realtimeRoutes } from '../modules/realtime/realtime.routes.ts'
 import { ReportService } from '../modules/reports/report-service.ts'
@@ -46,6 +49,7 @@ export interface ApiOptions {
   templateRegistry: TemplateRegistry
   wabaDirectory: WabaDirectory
   feed: InboxFeed
+  bcv: Pick<BcvRateService, 'refresh'>
 }
 
 const COMPANY = '/tenants/:tenantId'
@@ -63,7 +67,7 @@ export const publicApiRoutes: FastifyPluginAsync<{ db: Database }> = async (app,
  * The panel's API (/api). Everything in here requires a verified Supabase session;
  * company data is only reached through inCompany() (membership + withTenant).
  */
-export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed }) => {
+export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv }) => {
   installErrorHandler(app, toApiError)
   app.decorateRequest('identity', null)
   app.addHook('onRequest', authenticate(verifier))
@@ -92,6 +96,7 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   await app.register(inventoryRoutes, { prefix: COMPANY, db, inventory: new InventoryService(categories, variantTypes), categories, variantTypes })
   await app.register(realtimeRoutes, { prefix: COMPANY, db, feed })
   await app.register(reportsRoutes, { prefix: COMPANY, db, reports: new ReportService() })
+  await app.register(exchangeRateRoutes, { prefix: COMPANY, db, rates: new ExchangeRateService(), bcv })
   await app.register(teamRoutes, { prefix: COMPANY, db, team: new TeamService(), invitations })
   await app.register(invitationRoutes, { invitations })
   await app.register(workspaceRoutes, {

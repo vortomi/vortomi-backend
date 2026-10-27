@@ -38,6 +38,7 @@ export async function seedSampleData(db: Database, dataDir: string): Promise<See
     channels: load('channel-accounts'),
     memberships: load('memberships'),
     settings: load('tenant-settings'),
+    rateBooks: load('exchange-rates'),
     stages: load('pipeline-stages'),
     tags: load('tags'),
     quickReplies: load('quick-replies'),
@@ -95,8 +96,23 @@ export async function seedSampleData(db: Database, dataDir: string): Promise<See
         workMode: (opt(row, 'workMode') ?? 'sales_and_support') as never,
         businessHours: row['businessHours'] as never,
         awayMessage: str(row, 'awayMessage'),
-        exchangeRateVes: (row['exchangeRateVes'] ?? null) as number | null,
       })
+    }
+    for (const book of data.rateBooks) {
+      const tenantId = id(book, 'tenantId')
+      await tx.update(s.tenantSettings).set({ rateSource: str(book, 'rateSource') as never }).where(eq(s.tenantSettings.tenantId, tenantId))
+      // Oldest first, with their dates: the newest stays the company's rate. Typed ones lose
+      // their author's name (it is only text in the prototype).
+      for (const rate of [...(book['exchangeRates'] as Row[])].reverse()) {
+        await tx.insert(s.exchangeRates).values({
+          tenantId,
+          rate: str(rate, 'bsPerUsd'),
+          previousRate: opt(rate, 'previousBsPerUsd') ?? null,
+          effectiveDate: str(rate, 'effectiveDate'),
+          source: str(rate, 'source') as never,
+          createdAt: new Date(str(rate, 'createdAt')),
+        })
+      }
     }
     for (const row of data.stages) {
       await tx.insert(s.pipelineStages).values({ id: id(row), tenantId: id(row, 'tenantId'), name: str(row, 'name'), color: str(row, 'color'), position: row['position'] as number })
