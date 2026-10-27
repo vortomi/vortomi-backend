@@ -218,6 +218,20 @@
       "when": 1793113638640,
       "tag": "0030_combined_variants_security",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1793116192297,
+      "tag": "0031_custom_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793116194310,
+      "tag": "0032_custom_fields_security",
+      "breakpoints": true
     }
   ]
 }

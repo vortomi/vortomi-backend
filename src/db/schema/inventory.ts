@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { boolean, check, foreignKey, index, integer, numeric, pgTable, text, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { memberships } from './access.ts'
-import { createdAtColumn, oneOf, serialIdColumn, tenantIdColumn, uuidIdColumn } from './columns.ts'
+import { createdAtColumn, customValuesColumn, oneOf, serialIdColumn, tenantIdColumn, uuidIdColumn } from './columns.ts'
 import { DECIMAL_SALE_UNITS, SALE_UNITS, STOCK_MODES, STOCK_MOVEMENT_KINDS } from './enums.ts'
 import { tenants } from './tenancy.ts'
 
@@ -91,6 +91,8 @@ export const products = pgTable(
     // The least a customer can order, and the size of each step above it (0,5 m at a time).
     minQuantity: quantity('min_quantity').notNull().default(1),
     quantityStep: quantity('quantity_step').notNull().default(1),
+    // The company's own data about it ("Sirve para", "Marca"): custom_fields.
+    customValues: customValuesColumn(),
     active: boolean('active').notNull().default(true),
     createdAt: createdAtColumn(),
   },
@@ -112,6 +114,9 @@ export const products = pgTable(
         and (${t.variantType3Id} is null or (${t.variantType2Id} is not null and ${t.variantType3Id} not in (${t.variantTypeId}, ${t.variantType2Id})))`,
     ),
     check('products_sale_unit_check', oneOf(t.saleUnit, SALE_UNITS)),
+    check('products_custom_values_check', sql`jsonb_typeof(${t.customValues}) = 'object'`),
+    // Lets search ask "which products serve a Corolla 2015" without reading them all.
+    index('products_custom_values_idx').using('gin', t.customValues),
     // Units that count whole sell one at a time, from a whole minimum.
     check(
       'products_quantities_check',

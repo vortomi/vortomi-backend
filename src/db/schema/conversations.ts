@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { boolean, check, foreignKey, index, integer, jsonb, pgTable, pgView, text, unique, uuid } from 'drizzle-orm/pg-core'
-import { createdAtColumn, oneOf, serialIdColumn, tenantIdColumn, timestamptz, uuidIdColumn } from './columns.ts'
+import { createdAtColumn, customValuesColumn, oneOf, serialIdColumn, tenantIdColumn, timestamptz, uuidIdColumn } from './columns.ts'
 import { CONVERSATION_STATUSES, DELIVERY_STATUSES, MESSAGE_AUTHORS, MESSAGE_DIRECTIONS, MESSAGE_TYPES } from './enums.ts'
 import { memberships } from './access.ts'
 import { channelAccounts, tenants } from './tenancy.ts'
@@ -28,7 +28,10 @@ export const contacts = pgTable(
     quoteCents: integer('quote_cents'),
     // The team member who follows this customer up; a member of the same company. Null = nobody.
     ownerUserId: uuid('owner_user_id'),
-    // Facts the team keeps about the customer: [{ key, label, value }], validated by the API.
+    // The company's own data about the customer ("Vehículo", "Zona"): custom_fields.
+    customValues: customValuesColumn(),
+    // Notes typed freely before the company defined its fields: [{ key, label, value }]. Kept
+    // until an admin moves them into a field (custom-field-service, organizeNotes).
     attributes: jsonb('attributes').$type<ContactAttribute[]>().notNull().default(sql`'[]'::jsonb`),
     // Opens the 24 h customer service window.
     lastInboundAt: timestamptz('last_inbound_at'),
@@ -47,6 +50,8 @@ export const contacts = pgTable(
     check('contacts_quote_check', sql`${t.quoteCents} is null or ${t.quoteCents} >= 0`),
     foreignKey({ name: 'contacts_owner_fk', columns: [t.tenantId, t.ownerUserId], foreignColumns: [memberships.tenantId, memberships.userId] }),
     check('contacts_attributes_check', sql`jsonb_typeof(${t.attributes}) = 'array' and jsonb_array_length(${t.attributes}) <= 30`),
+    check('contacts_custom_values_check', sql`jsonb_typeof(${t.customValues}) = 'object'`),
+    index('contacts_custom_values_idx').using('gin', t.customValues),
   ],
 )
 

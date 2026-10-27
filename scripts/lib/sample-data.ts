@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import type { Database } from '../../src/db/client.ts'
 import type { MessageType, TagTone, TemplateCategory, TemplateStatus } from '../../src/db/schema/enums.ts'
+import type { CustomValue } from '../../src/db/schema/columns.ts'
 import * as s from '../../src/db/schema/index.ts'
 
 /** Stable UUID for a prototype id ("ten_ra"), so re-running maps to the same rows. */
@@ -49,6 +50,7 @@ export async function seedSampleData(db: Database, dataDir: string): Promise<See
     notes: load('notes'),
     categories: load('product-categories'),
     variantTypes: load('variant-types'),
+    customFields: load('custom-fields'),
     variantOptions: load('variant-options'),
     products: load('products'),
     variants: load('product-variants'),
@@ -223,6 +225,42 @@ export async function seedSampleData(db: Database, dataDir: string): Promise<See
     for (const row of data.categories) {
       await tx.insert(s.productCategories).values({ id: id(row), tenantId: id(row, 'tenantId'), name: str(row, 'name') })
     }
+    // The companies' own fields, then the answers the prototype gives to products and contacts.
+    const kindOf = new Map<string, string>()
+    for (const row of data.customFields) {
+      kindOf.set(str(row, 'id'), str(row, 'kind'))
+      const fieldId = id(row)
+      const tenantId = id(row, 'tenantId')
+      await tx.insert(s.customFields).values({
+        id: fieldId,
+        tenantId,
+        entity: str(row, 'entity') as never,
+        label: str(row, 'label'),
+        kind: str(row, 'kind') as never,
+        required: row['required'] as boolean,
+        position: row['position'] as number,
+      })
+      for (const [position, option] of (row['options'] as Row[]).entries()) {
+        await tx.insert(s.customFieldOptions).values({ id: id(option), tenantId, fieldId, value: str(option, 'value'), position })
+      }
+      for (const categoryId of row['categoryIds'] as string[]) {
+        await tx.insert(s.customFieldCategories).values({ tenantId, fieldId, categoryId: sampleUuid(categoryId) })
+      }
+    }
+    // Prototype ids become the sample uuids: the field keys and, for lists, the options picked.
+    const answers = (row: Row) => {
+      const stored: Record<string, CustomValue> = {}
+      for (const [fieldId, value] of Object.entries((row['customValues'] as Record<string, CustomValue> | undefined) ?? {})) {
+        const kind = kindOf.get(fieldId)
+        stored[sampleUuid(fieldId)] = kind === 'choice' ? sampleUuid(value as string) : kind === 'multi_choice' ? (value as string[]).map(sampleUuid) : value
+      }
+      return stored
+    }
+    for (const row of data.contacts) {
+      const customValues = answers(row)
+      if (Object.keys(customValues).length) await tx.update(s.contacts).set({ customValues }).where(eq(s.contacts.id, id(row)))
+    }
+
     for (const row of data.variantTypes) {
       await tx.insert(s.variantTypes).values({ id: id(row), tenantId: id(row, 'tenantId'), name: str(row, 'name') })
     }
@@ -248,6 +286,7 @@ export async function seedSampleData(db: Database, dataDir: string): Promise<See
         saleUnit: (opt(row, 'saleUnit') ?? 'unit') as never,
         minQuantity: (row['minQuantity'] as number | undefined) ?? 1,
         quantityStep: (row['quantityStep'] as number | undefined) ?? 1,
+        customValues: answers(row),
         active: row['active'] as boolean,
         createdAt: date(row, 'createdAt'),
       })

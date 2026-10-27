@@ -11,6 +11,8 @@ import {
 import { VariantOptionNotFoundError, VariantTypeNotFoundError } from '../modules/inventory/variant-type-service.ts'
 import { ChannelNotAttendedError, ContactNotFoundError, OwnerNotMemberError, UnknownTagError } from '../modules/contacts/contact-service.ts'
 import { TagNotFoundError } from '../modules/contacts/tag-service.ts'
+import { CustomFieldNotFoundError, FieldLimitError, InvalidCustomFieldError } from '../modules/custom-fields/custom-field-service.ts'
+import { InvalidCustomValueError } from '../modules/custom-fields/custom-values.ts'
 import { NoChannelError, TenantNotFoundError, WabaTakenError } from '../modules/platform/tenant-admin-service.ts'
 import { ChannelNotFoundError } from '../modules/team/channel-list.ts'
 import {
@@ -69,6 +71,10 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [MentionNotMemberError, 422, 'mention_not_member'],
   [UnknownTagError, 422, 'unknown_tag'],
   [OwnerNotMemberError, 422, 'owner_not_member'],
+  [CustomFieldNotFoundError, 404, 'custom_field_not_found'],
+  [FieldLimitError, 409, 'field_limit'],
+  [InvalidCustomFieldError, 422, 'invalid_field'],
+  [InvalidCustomValueError, 422, 'invalid_field_value'],
   [ChannelNotAttendedError, 403, 'channel_not_attended'],
   [ServiceWindowClosedError, 422, 'service_window_closed'],
   [TemplateNotUsableError, 422, 'template_not_usable'],
@@ -87,6 +93,9 @@ const CONSTRAINT_CONFLICTS: Record<string, string> = {
   contacts_channel_fk: 'unknown_channel',
   // A person of another company: the service refuses it first; the composite key would too.
   contacts_owner_fk: 'owner_not_member',
+  custom_fields_tenant_entity_label_key: 'field_label_taken',
+  custom_field_options_value_key: 'field_option_taken',
+  custom_field_categories_category_fk: 'unknown_category',
   message_templates_tenant_waba_name_language_key: 'template_exists',
   product_variants_tenant_sku_key: 'sku_taken',
   product_categories_tenant_name_key: 'category_name_taken',

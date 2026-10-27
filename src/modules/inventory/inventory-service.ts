@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { DECIMAL_SALE_UNITS, SALE_UNITS, STOCK_MODES, STOCK_MOVEMENT_KINDS, type SaleUnit, type StockMovementKind } from '../../db/schema/enums.ts'
 import { productCategories, productVariants, products, stockMovements } from '../../db/schema/index.ts'
 import type { MemberScope } from '../access/member-scope.ts'
+import type { CustomFieldService } from '../custom-fields/custom-field-service.ts'
+import { checkValues, customValuesInput } from '../custom-fields/custom-values.ts'
 import type { CategoryService } from './category-service.ts'
 import type { VariantTypeService } from './variant-type-service.ts'
 
@@ -114,6 +116,8 @@ const productFields = z.object({
     .refine((value) => (QUANTITY_STEPS as readonly number[]).includes(value), 'one of the offered steps')
     .default(1),
   variants: z.array(variantInput).min(1).max(100),
+  // The company's own data about the product ("Sirve para", "Marca"), checked against its fields.
+  customValues: customValuesInput.default({}),
 })
 
 type SaleFields = Pick<z.infer<typeof productFields>, 'saleUnit' | 'minQuantity' | 'quantityStep'>
@@ -133,6 +137,8 @@ type VariantInput = z.infer<typeof variantInput>
 /** What can change once a product exists. The stock mode cannot: its history is counted one way. */
 export const productUpdate = productFields
   .pick({ name: true, categoryId: true, variantTypeIds: true, description: true, saleUnit: true, minQuantity: true, quantityStep: true })
+  // Left out: the product keeps the values it has.
+  .extend({ customValues: customValuesInput.optional() })
   .superRefine(checkSaleQuantities)
 export type ProductUpdate = z.infer<typeof productUpdate>
 
@@ -189,6 +195,7 @@ export class InventoryService {
   constructor(
     private readonly categories: CategoryService,
     private readonly variantTypes: VariantTypeService,
+    private readonly customFields: CustomFieldService,
   ) {}
 
   async list(scope: MemberScope) {
@@ -206,6 +213,7 @@ export class InventoryService {
           saleUnit: products.saleUnit,
           minQuantity: products.minQuantity,
           quantityStep: products.quantityStep,
+          customValues: products.customValues,
           active: products.active,
           createdAt: products.createdAt,
         })
@@ -223,10 +231,11 @@ export class InventoryService {
     const { tx, tenantId } = scope
     await this.categories.assertExists(scope, input.categoryId)
     for (const typeId of input.variantTypeIds) await this.variantTypes.assertType(scope, typeId)
-    const { variants, variantTypeIds, ...fields } = input
+    const { variants, variantTypeIds, customValues, ...fields } = input
+    const values = checkValues(await this.customFields.definitions(scope, 'product'), customValues, input.categoryId)
     const [product] = await tx
       .insert(products)
-      .values({ tenantId, ...fields, ...typeColumns(variantTypeIds) })
+      .values({ tenantId, ...fields, ...typeColumns(variantTypeIds), customValues: values })
       .returning({ id: products.id })
     const shape = { stockMode: input.stockMode, saleUnit: input.saleUnit, typeIds: variantTypeIds }
     for (const variant of variants) await this.insertVariant(scope, product!.id, shape, variant)
@@ -237,7 +246,7 @@ export class InventoryService {
    * Name, category, description and how it is sold. The types change only while no variant uses
    * their values; a unit that counts whole is refused while some count is a fraction.
    */
-  async updateProduct(scope: MemberScope, productId: string, { variantTypeIds, ...input }: ProductUpdate) {
+  async updateProduct(scope: MemberScope, productId: string, { variantTypeIds, customValues, ...input }: ProductUpdate) {
     const { tx, tenantId } = scope
     await this.categories.assertExists(scope, input.categoryId)
     for (const typeId of variantTypeIds) await this.variantTypes.assertType(scope, typeId)
@@ -256,9 +265,10 @@ export class InventoryService {
         .limit(1)
       if (fractional) throw new FractionalStockError()
     }
+    const values = customValues === undefined ? {} : { customValues: checkValues(await this.customFields.definitions(scope, 'product'), customValues, input.categoryId) }
     await tx
       .update(products)
-      .set({ ...input, ...typeColumns(variantTypeIds) })
+      .set({ ...input, ...typeColumns(variantTypeIds), ...values })
       .where(and(eq(products.tenantId, tenantId), eq(products.id, productId)))
   }
 

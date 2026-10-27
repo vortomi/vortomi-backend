@@ -1,5 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm'
-import { bigint, timestamp, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core'
+import { bigint, jsonb, timestamp, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core'
 
 /** Random UUID key: ids that leave the server must not be guessable or enumerable. */
 export const uuidIdColumn = () => uuid('id').primaryKey().defaultRandom()
@@ -13,6 +13,13 @@ export const tenantIdColumn = () => uuid('tenant_id').notNull()
 export const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
 
 export const createdAtColumn = () => timestamptz('created_at').notNull().defaultNow()
+
+/** A company field's value: text, number, option id(s), yes/no or "YYYY-MM-DD" (custom-fields.ts). */
+export type CustomValue = string | number | boolean | string[]
+
+/** The company's own data on a product or contact: { fieldId: value }, checked by the API. */
+export const customValuesColumn = () =>
+  jsonb('custom_values').$type<Record<string, CustomValue>>().notNull().default(sql`'{}'::jsonb`)
 
 /**
  * CHECK expression restricting a text column to a fixed list.

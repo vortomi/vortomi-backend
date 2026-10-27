@@ -5,6 +5,8 @@ import { accessRoutes } from '../modules/access/access.routes.ts'
 import type { AccessTokenVerifier } from '../modules/access/identity.ts'
 import type { ChannelCredentials } from '../modules/channels/channel-credentials.ts'
 import { ContactService } from '../modules/contacts/contact-service.ts'
+import { CustomFieldService } from '../modules/custom-fields/custom-field-service.ts'
+import { customFieldRoutes } from '../modules/custom-fields/custom-fields.routes.ts'
 import { contactRoutes } from '../modules/contacts/contacts.routes.ts'
 import { TagService } from '../modules/contacts/tag-service.ts'
 import { ConversationCommands } from '../modules/conversations/conversation-commands.ts'
@@ -88,12 +90,14 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
     commands: new ConversationCommands(conversationQueries),
     outbound: new OutboundService(db, conversationQueries, credentials, sender),
   })
-  const contactService = new ContactService()
+  const customFields = new CustomFieldService()
+  await app.register(customFieldRoutes, { prefix: COMPANY, db, fields: customFields })
+  const contactService = new ContactService(customFields)
   await app.register(contactRoutes, { prefix: COMPANY, db, contacts: contactService, tags: new TagService() })
   await app.register(templateRoutes, { prefix: COMPANY, db, templates: new TemplateService(db, credentials, templateRegistry) })
   const categories = new CategoryService()
   const variantTypes = new VariantTypeService()
-  await app.register(inventoryRoutes, { prefix: COMPANY, db, inventory: new InventoryService(categories, variantTypes), categories, variantTypes })
+  await app.register(inventoryRoutes, { prefix: COMPANY, db, inventory: new InventoryService(categories, variantTypes, customFields), categories, variantTypes })
   await app.register(realtimeRoutes, { prefix: COMPANY, db, feed })
   await app.register(reportsRoutes, { prefix: COMPANY, db, reports: new ReportService() })
   await app.register(exchangeRateRoutes, { prefix: COMPANY, db, rates: new ExchangeRateService(), bcv })

@@ -92,6 +92,17 @@ export const SALE_UNITS = ['unit', 'pair', 'dozen', 'box', 'pack', 'roll', 'kg',
 export type SaleUnit = (typeof SALE_UNITS)[number]
 export const DECIMAL_SALE_UNITS: readonly SaleUnit[] = ['kg', 'm', 'm2', 'l', 'hour']
 
+/** Whose data a company field describes: its products or its customers. */
+export const CUSTOM_FIELD_ENTITIES = ['product', 'contact'] as const
+export type CustomFieldEntity = (typeof CUSTOM_FIELD_ENTITIES)[number]
+
+/**
+ * How a company field is answered (closed list): short text, a number, one or several choices
+ * of the field's own list, yes or no, or a date.
+ */
+export const CUSTOM_FIELD_KINDS = ['text', 'number', 'choice', 'multi_choice', 'boolean', 'date'] as const
+export type CustomFieldKind = (typeof CUSTOM_FIELD_KINDS)[number]
+
 /** Every stock change is one of these. Sign is fixed by kind (stock_movements_sign_check). */
 export const STOCK_MOVEMENT_KINDS = ['initial', 'purchase', 'sale', 'adjustment', 'loss', 'return'] as const
 export type StockMovementKind = (typeof STOCK_MOVEMENT_KINDS)[number]

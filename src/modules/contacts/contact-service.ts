@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { contactTags, contacts, memberships, pipelineStages, tags } from '../../db/schema/index.ts'
 import { type Cursor, encodeCursor, likePattern } from '../../shared/pagination.ts'
 import type { MemberScope } from '../access/member-scope.ts'
+import type { CustomFieldService } from '../custom-fields/custom-field-service.ts'
+import { checkValues, customValuesInput } from '../custom-fields/custom-values.ts'
 import { canAttend, visibleContacts } from '../conversations/visibility.ts'
 import { StageNotFoundError } from '../workspace/pipeline-service.ts'
 
@@ -62,6 +64,8 @@ export const contactInput = z.object({
   tagIds: z.array(z.uuid()).max(20).default([]),
   ownerUserId: z.uuid().nullable().default(null),
   attributes: attributesInput.default([]),
+  // The company's own data about the customer ("Vehículo", "Zona"), checked against its fields.
+  customValues: customValuesInput.default({}),
 })
 export type ContactInput = z.infer<typeof contactInput>
 
@@ -90,6 +94,7 @@ const columns = {
   quoteCents: contacts.quoteCents,
   ownerUserId: contacts.ownerUserId,
   attributes: contacts.attributes,
+  customValues: contacts.customValues,
   lastInboundAt: contacts.lastInboundAt,
   createdAt: contacts.createdAt,
   tagIds: sql<string[]>`coalesce((
@@ -100,6 +105,8 @@ const columns = {
 
 /** Contacts of the company, limited to the numbers the member attends (visibility.ts). */
 export class ContactService {
+  constructor(private readonly customFields: CustomFieldService) {}
+
   async list(scope: MemberScope, filters: ContactFilters) {
     const conditions: (SQL | undefined)[] = [eq(contacts.tenantId, scope.tenantId), visibleContacts(scope.member)]
     if (filters.search) {
@@ -157,6 +164,7 @@ export class ContactService {
     }
     const tagIds = await this.knownTags(scope, input.tagIds)
     if (input.ownerUserId) await this.activeMember(scope, input.ownerUserId)
+    const customValues = checkValues(await this.customFields.definitions(scope, 'contact'), input.customValues)
     const [row] = await scope.tx
       .insert(contacts)
       .values({
@@ -167,6 +175,7 @@ export class ContactService {
         stageId: input.stageId,
         ownerUserId: input.ownerUserId,
         attributes: input.attributes,
+        customValues,
       })
       .returning({ id: contacts.id })
     if (tagIds.length) await scope.tx.insert(contactTags).values(tagIds.map((tagId) => ({ tenantId: scope.tenantId, contactId: row!.id, tagId })))
@@ -231,6 +240,16 @@ export class ContactService {
     await scope.tx
       .update(contacts)
       .set({ attributes })
+      .where(and(eq(contacts.tenantId, scope.tenantId), eq(contacts.id, contactId)))
+  }
+
+  /** Replaces the contact's answers to the company's fields; required ones must be answered. */
+  async setCustomValues(scope: MemberScope, contactId: string, input: Record<string, unknown>) {
+    await this.get(scope, contactId)
+    const customValues = checkValues(await this.customFields.definitions(scope, 'contact'), input)
+    await scope.tx
+      .update(contacts)
+      .set({ customValues })
       .where(and(eq(contacts.tenantId, scope.tenantId), eq(contacts.id, contactId)))
   }
 
