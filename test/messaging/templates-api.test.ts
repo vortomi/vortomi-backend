@@ -14,7 +14,7 @@ import { ChannelDirectory } from '../../src/modules/tenancy/channel-directory.ts
 import { withTenant } from '../../src/modules/tenancy/tenant-scope.ts'
 import { parseWebhookPayload } from '../../src/modules/whatsapp/webhook-parser.ts'
 import { FakeRegistry, FakeSender, buildTestApp, testCredentials } from '../helpers/app.ts'
-import { bearer, seedMembership, seedUser } from '../helpers/auth.ts'
+import { bearer, seedAssignees, seedMembership, seedUser } from '../helpers/auth.ts'
 import { dbError } from '../helpers/db-error.ts'
 import { templateStatusWebhook } from '../helpers/meta-payloads.ts'
 import { createTestDatabase, type TestDatabase } from '../helpers/test-db.ts'
@@ -57,6 +57,7 @@ beforeAll(async () => {
     waMediaId: null,
   }
   expiredChat = (await withTenant(t.db, a.tenantId, (scope) => new IngestService().recordInbound(scope, a.channelAccountId, event))).conversationId
+  await seedAssignees(t.db, a.tenantId, expiredChat, who.carlos)
 
   sender = new FakeSender()
   registry = new FakeRegistry()

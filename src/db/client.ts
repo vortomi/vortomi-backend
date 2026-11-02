@@ -22,6 +22,9 @@ export interface DatabaseHandle {
 export function createDatabase(url: string, maxConnections: number): DatabaseHandle {
   const client = postgres(url, {
     max: maxConnections,
+    // Close idle connections before the pooler or the network drops them silently; reusing a
+    // dropped one fails the next query with ECONNRESET. LISTEN keeps its own connection.
+    idle_timeout: 20,
     // Supabase requires TLS; the connection string carries sslmode.
     connection: { application_name: 'vortomi-backend' },
   })

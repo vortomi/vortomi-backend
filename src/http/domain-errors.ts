@@ -9,10 +9,11 @@ import {
   VariantTypesLockedError,
 } from '../modules/inventory/inventory-service.ts'
 import { VariantOptionNotFoundError, VariantTypeNotFoundError } from '../modules/inventory/variant-type-service.ts'
-import { ChannelNotAttendedError, ContactNotFoundError, OwnerNotMemberError, UnknownTagError } from '../modules/contacts/contact-service.ts'
+import { ContactNotFoundError, OwnerNotMemberError, UnknownTagError } from '../modules/contacts/contact-service.ts'
 import { TagNotFoundError } from '../modules/contacts/tag-service.ts'
 import { CustomFieldNotFoundError, FieldLimitError, InvalidCustomFieldError } from '../modules/custom-fields/custom-field-service.ts'
 import { InvalidCustomValueError } from '../modules/custom-fields/custom-values.ts'
+import { UnknownBusinessTypeError } from '../modules/setup/setup-service.ts'
 import { NoChannelError, TenantNotFoundError, WabaTakenError } from '../modules/platform/tenant-admin-service.ts'
 import { ChannelNotFoundError } from '../modules/team/channel-list.ts'
 import {
@@ -24,6 +25,10 @@ import {
 } from '../modules/team/invitation-service.ts'
 import { LastAdminError, MemberNotFoundError, SelfDisableError } from '../modules/team/team-service.ts'
 import { AssigneeCannotAttendError, ConversationNotFoundError, MentionNotMemberError } from '../modules/conversations/conversation-commands.ts'
+import { OrderNotFoundError } from '../modules/orders/order-service.ts'
+import { InvalidPictureError } from '../modules/sale-receipts/picture.ts'
+import { ReceiptAlreadyIssuedError, SaleReceiptNotFoundError } from '../modules/sale-receipts/sale-receipt-service.ts'
+import { PaymentMethodNotFoundError, PaymentMethodOrderError } from '../modules/payment-methods/payment-method-service.ts'
 import { ConcurrentSendError, ServiceWindowClosedError, TemplateNotUsableError } from '../modules/messaging/outbound.service.ts'
 import { InvalidTemplateError } from '../modules/templates/template-body.ts'
 import { TemplateAdminRequiredError } from '../modules/templates/template-service.ts'
@@ -68,6 +73,12 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [QuickReplyNotFoundError, 404, 'quick_reply_not_found'],
   [StageNotFoundError, 404, 'stage_not_found'],
   [AssigneeCannotAttendError, 422, 'assignee_cannot_attend'],
+  [OrderNotFoundError, 404, 'order_not_found'],
+  [SaleReceiptNotFoundError, 404, 'sale_receipt_not_found'],
+  [ReceiptAlreadyIssuedError, 409, 'receipt_already_issued'],
+  [InvalidPictureError, 422, 'invalid_picture'],
+  [PaymentMethodNotFoundError, 404, 'payment_method_not_found'],
+  [PaymentMethodOrderError, 422, 'order_mismatch'],
   [MentionNotMemberError, 422, 'mention_not_member'],
   [UnknownTagError, 422, 'unknown_tag'],
   [OwnerNotMemberError, 422, 'owner_not_member'],
@@ -75,7 +86,7 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [FieldLimitError, 409, 'field_limit'],
   [InvalidCustomFieldError, 422, 'invalid_field'],
   [InvalidCustomValueError, 422, 'invalid_field_value'],
-  [ChannelNotAttendedError, 403, 'channel_not_attended'],
+  [UnknownBusinessTypeError, 422, 'unknown_business_type'],
   [ServiceWindowClosedError, 422, 'service_window_closed'],
   [TemplateNotUsableError, 422, 'template_not_usable'],
   [InvalidTemplateError, 422, 'invalid_template'],
@@ -96,6 +107,8 @@ const CONSTRAINT_CONFLICTS: Record<string, string> = {
   custom_fields_tenant_entity_label_key: 'field_label_taken',
   custom_field_options_value_key: 'field_option_taken',
   custom_field_categories_category_fk: 'unknown_category',
+  tenants_business_type_business_types_code_fk: 'unknown_business_type',
+  business_types_label_key: 'business_type_exists',
   message_templates_tenant_waba_name_language_key: 'template_exists',
   product_variants_tenant_sku_key: 'sku_taken',
   product_categories_tenant_name_key: 'category_name_taken',

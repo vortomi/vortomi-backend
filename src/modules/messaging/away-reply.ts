@@ -1,13 +1,10 @@
-import { createHash } from 'node:crypto'
-import { and, eq, gt, or, sql } from 'drizzle-orm'
+import { and, eq, gt, or } from 'drizzle-orm'
 import type { FastifyBaseLogger } from 'fastify'
 import type { Database } from '../../db/client.ts'
-import { channelAccounts, contacts, conversations, messages, tenantSettings, tenants } from '../../db/schema/index.ts'
-import type { ChannelCredentials } from '../channels/channel-credentials.ts'
+import { messages, tenantSettings, tenants } from '../../db/schema/index.ts'
 import { type TenantScope, withTenant } from '../tenancy/tenant-scope.ts'
-import type { WhatsAppSender } from '../whatsapp/cloud-api.client.ts'
+import { type BotDelivery, type BotDraft, botMessageId, findTarget, storeBotText } from './bot-delivery.ts'
 import { isOpenAt } from './business-hours.ts'
-import { describeSendError } from './outbound.service.ts'
 
 /** A message stored later than this (recovered after an outage) gets no automatic answer. */
 const FRESH_MS = 10 * 60_000
@@ -22,14 +19,9 @@ export interface InboundTrigger {
   waMessageId: string
   /** When the customer wrote it (WhatsApp's timestamp). */
   timestamp: Date
-}
-
-interface Draft {
-  messageId: number
-  channelAccountId: string
-  phoneNumberId: string
-  to: string
-  body: string
+  /** What it was (text, image…) and its file, when it carries one. */
+  type?: string
+  waMediaId?: string | null
 }
 
 /**
@@ -41,8 +33,7 @@ interface Draft {
 export class AwayReplyService {
   constructor(
     private readonly db: Database,
-    private readonly credentials: ChannelCredentials,
-    private readonly sender: WhatsAppSender,
+    private readonly delivery: BotDelivery,
     private readonly log: Pick<FastifyBaseLogger, 'error'>,
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -59,27 +50,11 @@ export class AwayReplyService {
   private async reply(tenantId: string, trigger: InboundTrigger): Promise<void> {
     if (this.now().getTime() - trigger.timestamp.getTime() > FRESH_MS) return
     const draft = await withTenant(this.db, tenantId, (scope) => this.prepare(scope, trigger))
-    if (!draft) return
-
-    let result: { waMessageId: string } | { error: string }
-    try {
-      const accessToken = await this.credentials.accessTokenFor(tenantId, draft.channelAccountId)
-      result = accessToken
-        ? await this.sender.sendText({ phoneNumberId: draft.phoneNumberId, accessToken, to: draft.to, body: draft.body })
-        : { error: 'no_credentials' }
-    } catch (error) {
-      result = { error: describeSendError(error) }
-    }
-    await withTenant(this.db, tenantId, ({ tx }) =>
-      tx
-        .update(messages)
-        .set('waMessageId' in result ? { waMessageId: result.waMessageId } : { sendError: result.error })
-        .where(and(eq(messages.tenantId, tenantId), eq(messages.id, draft.messageId))),
-    )
+    if (draft) await this.delivery.deliver(tenantId, draft)
   }
 
   /** Decides and stores the answer inside the company; null when nothing is to be sent. */
-  private async prepare(scope: TenantScope, trigger: InboundTrigger): Promise<Draft | null> {
+  private async prepare(scope: TenantScope, trigger: InboundTrigger): Promise<BotDraft | null> {
     const { tx, tenantId } = scope
     const [company] = await tx
       .select({ timezone: tenants.timezone, awayMessage: tenantSettings.awayMessage, businessHours: tenantSettings.businessHours })
@@ -106,40 +81,11 @@ export class AwayReplyService {
       .limit(1)
     if (recent) return null
 
-    const [target] = await tx
-      .select({ channelAccountId: contacts.channelAccountId, phoneNumberId: channelAccounts.phoneNumberId, to: contacts.waId })
-      .from(conversations)
-      .innerJoin(contacts, and(eq(contacts.tenantId, conversations.tenantId), eq(contacts.id, conversations.contactId)))
-      .innerJoin(channelAccounts, and(eq(channelAccounts.tenantId, contacts.tenantId), eq(channelAccounts.id, contacts.channelAccountId)))
-      .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, trigger.conversationId)))
+    const target = await findTarget(tx, tenantId, trigger.conversationId)
     if (!target) return null
 
     const body = company.awayMessage.trim()
-    const [stored] = await tx
-      .insert(messages)
-      .values({
-        tenantId,
-        conversationId: trigger.conversationId,
-        clientMessageId: awayReplyId(trigger.waMessageId),
-        direction: 'out',
-        author: 'bot',
-        type: 'text',
-        body,
-      })
-      .onConflictDoNothing({ target: [messages.tenantId, messages.clientMessageId] })
-      .returning({ id: messages.id })
-    if (!stored) return null
-
-    await tx
-      .update(conversations)
-      .set({ lastActivityAt: sql`now()` })
-      .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, trigger.conversationId)))
-    return { messageId: stored.id, ...target, body }
+    const messageId = await storeBotText(tx, tenantId, trigger.conversationId, botMessageId('away-reply', trigger.waMessageId), body)
+    return messageId === null ? null : { messageId, ...target, body }
   }
-}
-
-/** A uuid fixed by the customer's message: the second attempt to answer it hits the unique key. */
-function awayReplyId(waMessageId: string): string {
-  const hex = createHash('sha256').update(`away-reply:${waMessageId}`).digest('hex')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
 }

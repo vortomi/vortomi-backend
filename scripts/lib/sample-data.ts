@@ -69,6 +69,11 @@ export async function seedSampleData(db: Database, dataDir: string): Promise<See
         legalName: str(t, 'legalName'),
         taxId: str(t, 'taxId'),
         fiscalAddress: str(t, 'fiscalAddress'),
+        city: opt(t, 'city') ?? '',
+        // The sample companies already know their business type: no welcome for them.
+        businessType: opt(t, 'businessType'),
+        businessTypeOther: opt(t, 'businessTypeOther') ?? '',
+        setupCompletedAt: opt(t, 'businessType') ? date(t, 'createdAt') : null,
         createdAt: date(t, 'createdAt'),
       })
     }
@@ -175,11 +180,14 @@ export async function seedSampleData(db: Database, dataDir: string): Promise<See
         id: id(row),
         tenantId: id(row, 'tenantId'),
         contactId: id(row, 'contactId'),
-        assignedUserId: optId(row, 'assignedUserId'),
         status: str(row, 'status') as never,
         lastActivityAt: date(row, 'lastMessageAt'),
         lastReadAt,
       })
+      const assignees = (row['assigneeIds'] as string[] | undefined) ?? []
+      if (assignees.length) {
+        await tx.insert(s.conversationAssignees).values(assignees.map((userId) => ({ tenantId: id(row, 'tenantId'), conversationId: id(row), userId: sampleUuid(userId) })))
+      }
     }
 
     for (const row of data.messages) {

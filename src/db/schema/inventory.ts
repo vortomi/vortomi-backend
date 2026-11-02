@@ -1,16 +1,16 @@
 import { sql } from 'drizzle-orm'
-import { boolean, check, foreignKey, index, integer, numeric, pgTable, text, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { boolean, check, foreignKey, index, integer, pgTable, text, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { memberships } from './access.ts'
-import { createdAtColumn, customValuesColumn, oneOf, serialIdColumn, tenantIdColumn, uuidIdColumn } from './columns.ts'
+import { createdAtColumn, customValuesColumn, oneOf, quantityColumn, serialIdColumn, tenantIdColumn, uuidIdColumn } from './columns.ts'
 import { DECIMAL_SALE_UNITS, SALE_UNITS, STOCK_MODES, STOCK_MOVEMENT_KINDS } from './enums.ts'
 import { tenants } from './tenancy.ts'
 
 // Inventory (documentations/05): stock is a history of immutable movements; the
 // current count on each variant is kept by a trigger (drizzle/0013_inventory_security.sql).
-// Quantities have 3 decimals: a product sold by the kilo or the metre counts fractions.
+// Quantities have 2 decimals: a product sold by the kilo or the metre counts fractions.
 
-/** Units, reservations, thresholds and movements: up to 3 decimals (1 g of a kilo). */
-const quantity = (name: string) => numeric(name, { precision: 14, scale: 3, mode: 'number' })
+/** Units, reservations, thresholds and movements. */
+const quantity = quantityColumn
 
 /** The units that take decimals, as an SQL list for CHECK constraints (constants, never input). */
 const decimalUnits = sql.raw(DECIMAL_SALE_UNITS.map((unit) => `'${unit}'`).join(', '))

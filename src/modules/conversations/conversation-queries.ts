@@ -1,9 +1,9 @@
-import { type SQL, and, desc, eq, exists, ilike, isNull, lt, or, sql } from 'drizzle-orm'
+import { type SQL, and, desc, eq, exists, ilike, lt, or, sql } from 'drizzle-orm'
 import { contactTags, contacts, conversations, messageDeliveryStatus, messages } from '../../db/schema/index.ts'
 import type { DeliveryStatus, MessageType } from '../../db/schema/enums.ts'
 import { type Cursor, encodeCursor, likePattern } from '../../shared/pagination.ts'
 import type { MemberScope } from '../access/member-scope.ts'
-import { visibleConversations } from './visibility.ts'
+import { assignedTo, assigneeIds, unassigned, visibleConversations } from './visibility.ts'
 
 export type DeliveryState = DeliveryStatus | 'pending'
 
@@ -40,7 +40,10 @@ const lastMessage = sql<LastMessage | null>`(
 const columns = {
   id: conversations.id,
   status: conversations.status,
-  assignedUserId: conversations.assignedUserId,
+  assigneeIds,
+  // The sales agent passed it to a person: it stays quiet here until an admin hands it back.
+  handoffReason: conversations.handoffReason,
+  handoffAt: conversations.handoffAt,
   lastActivityAt: conversations.lastActivityAt,
   channelAccountId: contacts.channelAccountId,
   contact: { id: contacts.id, waId: contacts.waId, name: contacts.name, displayName: contacts.displayName },
@@ -138,9 +141,9 @@ export class ConversationQueries {
 function viewFilter(view: InboxView, userId: string): SQL | undefined {
   switch (view) {
     case 'mine':
-      return and(eq(conversations.status, 'open'), eq(conversations.assignedUserId, userId))
+      return and(eq(conversations.status, 'open'), assignedTo(userId))
     case 'unassigned':
-      return and(eq(conversations.status, 'open'), isNull(conversations.assignedUserId))
+      return and(eq(conversations.status, 'open'), unassigned)
     case 'all':
       return undefined
   }

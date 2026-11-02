@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
-import { check, integer, jsonb, pgTable, text, uniqueIndex, unique, uuid } from 'drizzle-orm/pg-core'
+import { boolean, check, integer, jsonb, pgTable, text, uniqueIndex, unique, uuid } from 'drizzle-orm/pg-core'
 import { createdAtColumn, oneOf, tenantIdColumn, timestamptz, uuidIdColumn } from './columns.ts'
-import { RATE_SOURCES, WORK_MODES } from './enums.ts'
+import { DELIVERY_MODES, RATE_SOURCES, SALE_UNITS, STOCK_MODES, WORK_MODES } from './enums.ts'
 import { tenants } from './tenancy.ts'
 
 // How each company works: settings, canned replies and its sales pipeline.
@@ -21,6 +21,12 @@ export const tenantSettings = pgTable(
     // Where the company's exchange rate comes from: read from the BCV every hour, or typed by an
     // admin (exchange-rates.ts keeps every rate).
     rateSource: text('rate_source', { enum: RATE_SOURCES }).notNull().default('custom'),
+    // A company with its own catalog system (catalog-source): price in bolívares at that system's
+    // rate, or at the rate above. Ignored without one.
+    useSystemRate: boolean('use_system_rate').notNull().default(true),
+    // What a new product starts with (set by the welcome from "¿Cómo vendes?"); each product can change it.
+    defaultSaleUnit: text('default_sale_unit', { enum: SALE_UNITS }).notNull().default('unit'),
+    defaultStockMode: text('default_stock_mode', { enum: STOCK_MODES }).notNull().default('units'),
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   (t) => [
@@ -28,6 +34,8 @@ export const tenantSettings = pgTable(
     check('tenant_settings_business_hours_check', sql`jsonb_typeof(${t.businessHours}) = 'array'`),
     check('tenant_settings_away_message_check', sql`length(${t.awayMessage}) <= 1024`),
     check('tenant_settings_rate_source_check', oneOf(t.rateSource, RATE_SOURCES)),
+    check('tenant_settings_default_sale_unit_check', oneOf(t.defaultSaleUnit, SALE_UNITS)),
+    check('tenant_settings_default_stock_mode_check', oneOf(t.defaultStockMode, STOCK_MODES)),
   ],
 )
 
@@ -70,5 +78,35 @@ export const pipelineStages = pgTable(
     uniqueIndex('pipeline_stages_tenant_name_key').on(t.tenantId, sql`lower(${t.name})`),
     check('pipeline_stages_color_check', sql`${t.color} ~ '^#[0-9a-fA-F]{6}$'`),
     check('pipeline_stages_position_check', sql`${t.position} >= 0`),
+  ],
+)
+
+/** A delivery zone and what it costs, in US cents. */
+export interface DeliveryZone {
+  name: string
+  priceCents: number
+}
+
+/**
+ * How a company delivers, one row per company. No row: it never said (the agent then leaves the
+ * cost to a person). enabled false: it does not deliver, only pickup.
+ */
+export const deliverySettings = pgTable(
+  'delivery_settings',
+  {
+    tenantId: uuid('tenant_id')
+      .primaryKey()
+      .references(() => tenants.id),
+    enabled: boolean('enabled').notNull().default(false),
+    mode: text('mode', { enum: DELIVERY_MODES }).notNull().default('zones'),
+    flatPriceCents: integer('flat_price_cents').notNull().default(0),
+    // [{ name, priceCents }], names unique ignoring case (validated by the API).
+    zones: jsonb('zones').$type<DeliveryZone[]>().notNull().default(sql`'[]'::jsonb`),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check('delivery_settings_mode_check', oneOf(t.mode, DELIVERY_MODES)),
+    check('delivery_settings_flat_price_check', sql`${t.flatPriceCents} between 0 and 100000000`),
+    check('delivery_settings_zones_check', sql`jsonb_typeof(${t.zones}) = 'array' and jsonb_array_length(${t.zones}) <= 100`),
   ],
 )

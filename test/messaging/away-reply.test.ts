@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { type BusinessDay, messages, tenantSettings } from '../../src/db/schema/index.ts'
 import { IngestService } from '../../src/modules/conversations/ingest.service.ts'
 import { AwayReplyService } from '../../src/modules/messaging/away-reply.ts'
+import { BotDelivery } from '../../src/modules/messaging/bot-delivery.ts'
 import { isOpenAt } from '../../src/modules/messaging/business-hours.ts'
 import { withTenant } from '../../src/modules/tenancy/tenant-scope.ts'
 import type { InboundMessageEvent } from '../../src/modules/whatsapp/events.ts'
@@ -81,7 +82,7 @@ async function customerWrites(from: string, at: Date, waMessageId = `wamid.in.${
   }
   const record = await withTenant(t.db, a.tenantId, (scope) => ingest.recordInbound(scope, a.channelAccountId, event))
   clock = new Date(at.getTime() + 2_000)
-  const service = new AwayReplyService(t.db, credentials, sender, silentLog, () => clock)
+  const service = new AwayReplyService(t.db, new BotDelivery(t.db, credentials, sender), silentLog, () => clock)
   await service.afterInbound(a.tenantId, { conversationId: record.conversationId, waMessageId, timestamp: at })
   return { ...record, service, waMessageId }
 }
@@ -136,7 +137,7 @@ describe('AwayReplyService', () => {
 
   it('a message recovered long after it was written gets no answer', async () => {
     const { conversationId } = await customerWrites('584121000006', CLOSED_AT)
-    const late = new AwayReplyService(t.db, credentials, sender, silentLog, () => new Date(CLOSED_AT.getTime() + 60 * 60_000))
+    const late = new AwayReplyService(t.db, new BotDelivery(t.db, credentials, sender), silentLog, () => new Date(CLOSED_AT.getTime() + 60 * 60_000))
     await late.afterInbound(a.tenantId, { conversationId, waMessageId: 'wamid.late', timestamp: CLOSED_AT })
     expect(await botMessages(conversationId)).toHaveLength(1)
   })

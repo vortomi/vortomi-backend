@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { IngestService } from '../../src/modules/conversations/ingest.service.ts'
 import { withTenant } from '../../src/modules/tenancy/tenant-scope.ts'
 import { buildTestApp } from '../helpers/app.ts'
-import { bearer, seedMembership, seedUser } from '../helpers/auth.ts'
+import { bearer, seedAssignees, seedMembership, seedUser } from '../helpers/auth.ts'
 import { createTestDatabase, type TestDatabase } from '../helpers/test-db.ts'
 import { type SeededTenant, seedTwoTenants } from '../helpers/tenants.ts'
 
@@ -38,7 +38,9 @@ beforeAll(async () => {
     replyId: null,
     waMediaId: null,
   }
-  contactId = (await withTenant(t.db, a.tenantId, (scope) => new IngestService().recordInbound(scope, a.channelAccountId, event))).contactId
+  const received = await withTenant(t.db, a.tenantId, (scope) => new IngestService().recordInbound(scope, a.channelAccountId, event))
+  contactId = received.contactId
+  await seedAssignees(t.db, a.tenantId, received.conversationId, who.carlos)
   app = await buildTestApp(t.db)
 })
 
@@ -69,13 +71,15 @@ describe('settings', () => {
       workMode: 'sales_and_support',
       businessHours: [],
       awayMessage: '',
+      defaultSaleUnit: 'unit',
+      defaultStockMode: 'units',
     })
   })
 
   it('only admins change them', async () => {
     const payload = { workMode: 'support_only', businessHours: weekdays, awayMessage: 'Ya cerramos' }
     expect((await call(who.carlos, 'PUT', '/settings', payload)).json()).toEqual({ error: 'admin_required' })
-    expect((await call(who.laura, 'PUT', '/settings', payload)).json()).toEqual(payload)
+    expect((await call(who.laura, 'PUT', '/settings', payload)).json()).toEqual({ ...payload, defaultSaleUnit: 'unit', defaultStockMode: 'units' })
     expect((await call(who.carlos, 'GET', '/settings')).json()).toMatchObject({ workMode: 'support_only', awayMessage: 'Ya cerramos' })
   })
 
@@ -126,7 +130,7 @@ describe('pipeline', () => {
     expect((await call(who.laura, 'PUT', '/pipeline/order', { stageIds: [stage.lead] })).statusCode).toBe(404)
   })
 
-  it('anyone who sees the contact moves it and sets the quote', async () => {
+  it('the agent of the conversation moves the contact and sets the quote', async () => {
     expect((await call(who.carlos, 'PUT', `/contacts/${contactId}/opportunity`, { stageId: stage.quoted, quoteCents: 125_000 })).statusCode).toBe(204)
     expect((await call(who.carlos, 'GET', `/contacts/${contactId}`)).json()).toMatchObject({ stageId: stage.quoted, quoteCents: 125_000 })
   })

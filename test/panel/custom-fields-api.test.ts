@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { contacts } from '../../src/db/schema/index.ts'
 import { buildTestApp } from '../helpers/app.ts'
-import { bearer, seedMembership, seedUser } from '../helpers/auth.ts'
+import { bearer, seedConversationFor, seedMembership, seedUser } from '../helpers/auth.ts'
 import { createTestDatabase, type TestDatabase } from '../helpers/test-db.ts'
 import { type SeededTenant, seedTwoTenants } from '../helpers/tenants.ts'
 
@@ -131,13 +131,14 @@ describe('product values', () => {
 describe('customer values', () => {
   let contactId = ''
 
-  it('required ones on a contact typed by hand; anyone who sees it answers them', async () => {
+  it('required ones on a contact typed by hand; the agent of its conversation answers them', async () => {
     const car = (await call(who.laura, 'POST', '/custom-fields', { entity: 'contact', label: 'Vehículo', kind: 'choice', required: true, options: ['Corolla 2015'] })).json<Field>()
     await call(who.laura, 'POST', '/custom-fields', { entity: 'contact', label: 'Cumpleaños', kind: 'date' })
     const contact = { channelAccountId: a.channelAccountId, waId: '584125550901' }
-    expect((await call(who.carlos, 'POST', '/contacts', contact)).json()).toEqual({ error: 'invalid_field_value' })
-    const created = await call(who.carlos, 'POST', '/contacts', { ...contact, customValues: { [car.id]: car.options[0]!.id } })
+    expect((await call(who.laura, 'POST', '/contacts', contact)).json()).toEqual({ error: 'invalid_field_value' })
+    const created = await call(who.laura, 'POST', '/contacts', { ...contact, customValues: { [car.id]: car.options[0]!.id } })
     contactId = created.json<{ id: string }>().id
+    await seedConversationFor(t.db, a.tenantId, contactId, who.carlos)
     expect(created.json()).toMatchObject({ customValues: { [car.id]: car.options[0]!.id } })
 
     const [, birthday] = await fields('contact')

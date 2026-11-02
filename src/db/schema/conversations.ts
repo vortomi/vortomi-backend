@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
-import { boolean, check, foreignKey, index, integer, jsonb, pgTable, pgView, text, unique, uuid } from 'drizzle-orm/pg-core'
+import { boolean, check, foreignKey, index, integer, jsonb, pgTable, pgView, primaryKey, text, unique, uuid } from 'drizzle-orm/pg-core'
 import { createdAtColumn, customValuesColumn, oneOf, serialIdColumn, tenantIdColumn, timestamptz, uuidIdColumn } from './columns.ts'
-import { CONVERSATION_STATUSES, DELIVERY_STATUSES, MESSAGE_AUTHORS, MESSAGE_DIRECTIONS, MESSAGE_TYPES } from './enums.ts'
+import { CONVERSATION_STATUSES, DELIVERY_STATUSES, HANDOFF_REASONS, MESSAGE_AUTHORS, MESSAGE_DIRECTIONS, MESSAGE_TYPES } from './enums.ts'
 import { memberships } from './access.ts'
 import { channelAccounts, tenants } from './tenancy.ts'
 import { messageTemplates } from './templates.ts'
@@ -69,15 +69,19 @@ export const conversations = pgTable(
     id: uuidIdColumn(),
     tenantId: tenantIdColumn(),
     contactId: uuid('contact_id').notNull(),
-    // A member of the same company (composite key below); null = unassigned.
-    assignedUserId: uuid('assigned_user_id'),
     status: text('status', { enum: CONVERSATION_STATUSES }).notNull().default('open'),
     lastActivityAt: timestamptz('last_activity_at').notNull().defaultNow(),
     // Shared by the team: inbound messages after it are unread. Null = never opened.
     lastReadAt: timestamptz('last_read_at'),
+    // The sales agent passed it to a person (and why): it stays quiet here until an admin hands
+    // it back. Null = the agent may answer.
+    handoffAt: timestamptz('handoff_at'),
+    handoffReason: text('handoff_reason', { enum: HANDOFF_REASONS }),
     createdAt: createdAtColumn(),
   },
   (t) => [
+    check('conversations_handoff_check', sql`(${t.handoffAt} is null) = (${t.handoffReason} is null)`),
+    check('conversations_handoff_reason_check', oneOf(t.handoffReason, HANDOFF_REASONS)),
     unique('conversations_tenant_id_id_key').on(t.tenantId, t.id),
     unique('conversations_tenant_contact_key').on(t.tenantId, t.contactId),
     foreignKey({
@@ -85,13 +89,37 @@ export const conversations = pgTable(
       columns: [t.tenantId, t.contactId],
       foreignColumns: [contacts.tenantId, contacts.id],
     }),
-    foreignKey({
-      name: 'conversations_assignee_fk',
-      columns: [t.tenantId, t.assignedUserId],
-      foreignColumns: [memberships.tenantId, memberships.userId],
-    }),
     index('conversations_tenant_activity_idx').on(t.tenantId, t.lastActivityAt),
     check('conversations_status_check', oneOf(t.status, CONVERSATION_STATUSES)),
+  ],
+)
+
+/**
+ * Who attends a conversation: any number of people, and a person any number of conversations.
+ * Only admins hand them out. An agent sees and answers only the conversations listed here.
+ */
+export const conversationAssignees = pgTable(
+  'conversation_assignees',
+  {
+    tenantId: tenantIdColumn(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    assignedAt: timestamptz('assigned_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: 'conversation_assignees_pkey', columns: [t.tenantId, t.conversationId, t.userId] }),
+    foreignKey({
+      name: 'conversation_assignees_conversation_fk',
+      columns: [t.tenantId, t.conversationId],
+      foreignColumns: [conversations.tenantId, conversations.id],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'conversation_assignees_member_fk',
+      columns: [t.tenantId, t.userId],
+      foreignColumns: [memberships.tenantId, memberships.userId],
+    }).onDelete('cascade'),
+    // "Mine": the conversations of one person.
+    index('conversation_assignees_user_idx').on(t.tenantId, t.userId),
   ],
 )
 

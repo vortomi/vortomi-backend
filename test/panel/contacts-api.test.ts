@@ -1,9 +1,10 @@
-// Contacts typed by hand and imported from a file: only on numbers the person attends, never
-// on another company's, the same phone once per number, and an import that keeps what is known.
+// Contacts typed by hand and imported from a file: an admin's call, never on another company's
+// number, the same phone once per number, and an import that keeps what is known. An agent only
+// sees the customers of the conversations assigned to them.
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildTestApp } from '../helpers/app.ts'
-import { bearer, seedMembership, seedUser } from '../helpers/auth.ts'
+import { bearer, seedConversationFor, seedMembership, seedUser } from '../helpers/auth.ts'
 import { createTestDatabase, type TestDatabase } from '../helpers/test-db.ts'
 import { type SeededTenant, seedTwoTenants } from '../helpers/tenants.ts'
 
@@ -11,7 +12,7 @@ let t: TestDatabase
 let app: FastifyInstance
 let a: SeededTenant
 let b: SeededTenant
-const who = { laura: '', carlos: '', ana: '' }
+const who = { laura: '', carlos: '' }
 let tagId = ''
 
 beforeAll(async () => {
@@ -19,11 +20,8 @@ beforeAll(async () => {
   ;({ a, b } = await seedTwoTenants(t.db))
   who.laura = await seedUser(t.db, 'Laura')
   who.carlos = await seedUser(t.db, 'Carlos')
-  who.ana = await seedUser(t.db, 'Ana')
   await seedMembership(t.db, a.tenantId, who.laura, { role: 'admin' })
   await seedMembership(t.db, a.tenantId, who.carlos, { channelAccountIds: [a.channelAccountId] })
-  // Ana is an agent with no number assigned.
-  await seedMembership(t.db, a.tenantId, who.ana)
   app = await buildTestApp(t.db)
   tagId = (await call(who.laura, 'POST', '/tags', { name: 'Mayorista', tone: 'blue' })).json<{ id: string }>().id
 })
@@ -38,17 +36,17 @@ async function call(userId: string, method: 'GET' | 'POST' | 'PUT', path: string
 }
 
 describe('a contact typed by hand', () => {
-  it('an agent adds one on their number; the phone is stored as digits; twice is refused', async () => {
+  it('an admin adds one; the phone is stored as digits; twice is refused; an agent cannot', async () => {
     const contact = { channelAccountId: a.channelAccountId, waId: '+58 412-555-0101', name: 'María López', tagIds: [tagId] }
-    const created = await call(who.carlos, 'POST', '/contacts', contact)
+    expect((await call(who.carlos, 'POST', '/contacts', contact)).json()).toEqual({ error: 'admin_required' })
+    const created = await call(who.laura, 'POST', '/contacts', contact)
     expect(created.statusCode).toBe(201)
     expect(created.json()).toMatchObject({ waId: '584125550101', name: 'María López', tagIds: [tagId] })
-    expect((await call(who.carlos, 'POST', '/contacts', contact)).json()).toEqual({ error: 'contact_exists' })
+    expect((await call(who.laura, 'POST', '/contacts', contact)).json()).toEqual({ error: 'contact_exists' })
   })
 
-  it('not on a number the person does not attend, nor on another company\'s', async () => {
+  it('not on another company\'s number', async () => {
     const contact = { channelAccountId: a.channelAccountId, waId: '584125550102' }
-    expect((await call(who.ana, 'POST', '/contacts', contact)).json()).toEqual({ error: 'channel_not_attended' })
     expect((await call(who.laura, 'POST', '/contacts', { ...contact, channelAccountId: b.channelAccountId })).json()).toEqual({ error: 'unknown_channel' })
     expect((await call(who.laura, 'POST', '/contacts', { ...contact, waId: '123' })).statusCode).toBe(400)
   })
@@ -88,9 +86,12 @@ describe('who follows the customer up, and what the team knows of them', () => {
     expect((await call(who.laura, 'POST', '/contacts', payload)).json()).toMatchObject({ ownerUserId: who.carlos, attributes: facts })
   })
 
-  it('anyone who sees the contact changes them; the owner must be an active member of the company', async () => {
-    const id = (await call(who.carlos, 'POST', '/contacts', { channelAccountId: a.channelAccountId, waId: '584125550402' })).json<{ id: string }>().id
-    expect((await call(who.carlos, 'PUT', `/contacts/${id}/owner`, { ownerUserId: who.laura })).statusCode).toBe(204)
+  it('the agent of the conversation fills the facts; only admins choose the owner, an active member', async () => {
+    const id = (await call(who.laura, 'POST', '/contacts', { channelAccountId: a.channelAccountId, waId: '584125550402' })).json<{ id: string }>().id
+    expect((await call(who.carlos, 'GET', `/contacts/${id}`)).json()).toEqual({ error: 'contact_not_found' })
+    await seedConversationFor(t.db, a.tenantId, id, who.carlos)
+    expect((await call(who.carlos, 'PUT', `/contacts/${id}/owner`, { ownerUserId: who.carlos })).json()).toEqual({ error: 'admin_required' })
+    expect((await call(who.laura, 'PUT', `/contacts/${id}/owner`, { ownerUserId: who.laura })).statusCode).toBe(204)
     expect((await call(who.carlos, 'PUT', `/contacts/${id}/attributes`, { attributes: facts })).statusCode).toBe(204)
     expect((await call(who.carlos, 'GET', `/contacts/${id}`)).json()).toMatchObject({ ownerUserId: who.laura, attributes: facts })
 

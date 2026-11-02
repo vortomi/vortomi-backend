@@ -51,7 +51,9 @@ export class ReportService {
         group by 1, 2
       ),
       attention as (
-        select i.day, coalesce(r.author_user_id, c.assigned_user_id, ${NOBODY}::uuid) as user_id, i.first_in, r.created_at as reply_at
+        select i.day, coalesce(r.author_user_id, (
+          select a.user_id from conversation_assignees a where a.tenant_id = c.tenant_id and a.conversation_id = c.id
+          order by a.assigned_at, a.user_id limit 1), ${NOBODY}::uuid) as user_id, i.first_in, r.created_at as reply_at
         from inbound i
         join conversations c on c.tenant_id = ${tenant}::uuid and c.id = i.conversation_id
         left join lateral (

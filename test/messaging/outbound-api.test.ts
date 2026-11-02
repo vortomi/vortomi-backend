@@ -1,7 +1,7 @@
 // Replying from the panel: once per click, only inside the 24 h window, only with the
 // number's own token, and never through a conversation the person cannot see.
 import { randomUUID } from 'node:crypto'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { channelCredentials, messages } from '../../src/db/schema/index.ts'
@@ -10,7 +10,7 @@ import { IngestService } from '../../src/modules/conversations/ingest.service.ts
 import { MessageStatusService } from '../../src/modules/conversations/message-status.service.ts'
 import { withTenant } from '../../src/modules/tenancy/tenant-scope.ts'
 import { FakeSender, buildTestApp, testCredentials } from '../helpers/app.ts'
-import { bearer, seedMembership, seedUser } from '../helpers/auth.ts'
+import { bearer, seedAssignees, seedMembership, seedUser } from '../helpers/auth.ts'
 import { dbError } from '../helpers/db-error.ts'
 import { createTestDatabase, type TestDatabase } from '../helpers/test-db.ts'
 import { type SeededTenant, seedTwoTenants } from '../helpers/tenants.ts'
@@ -58,7 +58,10 @@ beforeAll(async () => {
   chats.expired = await conversationWith(a, '584120000002', 30)
   chats.hidden = await conversationWith(a, '584120000003', 1)
   chats.inB = await conversationWith(b, '584120000009', 1)
-  await withTenant(t.db, a.tenantId, ({ tx }) => tx.execute(sql`update conversations set assigned_user_id = ${who.laura} where id = ${chats.hidden}`))
+  // Carlos attends the open and the expired ones; the hidden one is Laura's alone.
+  await seedAssignees(t.db, a.tenantId, chats.open, who.carlos)
+  await seedAssignees(t.db, a.tenantId, chats.expired, who.carlos)
+  await seedAssignees(t.db, a.tenantId, chats.hidden, who.laura)
 
   sender = new FakeSender()
   credentials = testCredentials(t.db)

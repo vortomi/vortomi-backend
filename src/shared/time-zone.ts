@@ -9,3 +9,6 @@ export const timeZone = z.string().refine((zone) => {
     return false
   }
 }, 'Unknown time zone')
+
+/** The calendar day of an instant in a time zone: "2026-11-02". */
+export const dayIn = (at: Date, zone: string): string => new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(at)

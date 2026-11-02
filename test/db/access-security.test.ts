@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { contacts, conversations, membershipChannels, memberships, users } from '../../src/db/schema/index.ts'
+import { contacts, conversationAssignees, conversations, membershipChannels, memberships, users } from '../../src/db/schema/index.ts'
 import { withTenant } from '../../src/modules/tenancy/tenant-scope.ts'
 import { seedMembership, seedUser } from '../helpers/auth.ts'
 import { dbError } from '../helpers/db-error.ts'
@@ -32,12 +32,13 @@ afterAll(async () => {
   await t.close()
 })
 
-/** A new contact + conversation of company A, optionally assigned. */
-const conversationInA = (waId: string, assignedUserId: string) =>
+/** A new contact + conversation of company A, assigned to someone. */
+const conversationInA = (waId: string, userId: string) =>
   withTenant(t.db, a.tenantId, async ({ tx, tenantId }) => {
     const [contact] = await tx.insert(contacts).values({ tenantId, channelAccountId: a.channelAccountId, waId }).returning()
-    const [row] = await tx.insert(conversations).values({ tenantId, contactId: contact!.id, assignedUserId }).returning()
-    return row!.assignedUserId
+    const [row] = await tx.insert(conversations).values({ tenantId, contactId: contact!.id }).returning()
+    const [assignee] = await tx.insert(conversationAssignees).values({ tenantId, conversationId: row!.id, userId }).returning()
+    return assignee!.userId
   })
 
 describe('a company only sees its own team', () => {
@@ -77,7 +78,7 @@ describe('the database refuses to mix companies', () => {
   })
 
   it('cannot assign a conversation to someone of another company', async () => {
-    expect(await dbError(conversationInA('584120000009', pedro))).toMatch(/conversations_assignee_fk/)
+    expect(await dbError(conversationInA('584120000009', pedro))).toMatch(/conversation_assignees_member_fk/)
   })
 
   it('can assign it to a member of the same company', async () => {

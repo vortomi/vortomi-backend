@@ -20,6 +20,14 @@ export interface TemplateMessage extends Credentials {
   bodyParameters: string[]
 }
 
+/** A picture we made (a sale receipt): uploaded to Meta, then sent with its caption. */
+export interface ImageMessage extends Credentials {
+  phoneNumberId: string
+  to: string
+  image: { bytes: Buffer; mimeType: 'image/png' | 'image/jpeg'; filename: string }
+  caption: string
+}
+
 export interface TemplateSubmission extends Credentials {
   wabaId: string
   name: string
@@ -33,6 +41,23 @@ export interface TemplateSubmission extends Credentials {
 export interface WhatsAppSender {
   sendText(message: TextMessage): Promise<{ waMessageId: string }>
   sendTemplate(message: TemplateMessage): Promise<{ waMessageId: string }>
+  sendImage(message: ImageMessage): Promise<{ waMessageId: string }>
+}
+
+/** A file a customer sent (image, document), downloaded from Meta. */
+export interface DownloadedMedia {
+  bytes: Buffer
+  mimeType: string
+}
+
+/** Downloads the files customers send, by their WhatsApp media id. */
+export interface MediaDownloader {
+  downloadMedia(mediaId: string, accessToken: string): Promise<DownloadedMedia>
+}
+
+/** Marks the customer's message read and shows "escribiendo…" to them (up to 25 s or until we answer). */
+export interface TypingIndicator {
+  showTyping(message: { phoneNumberId: string; accessToken: string; waMessageId: string }): Promise<void>
 }
 
 /** A number of a WhatsApp Business Account, as Meta describes it. */
@@ -85,7 +110,14 @@ const numbersResponseSchema = z.object({
 })
 
 /** The only Graph paths this client calls. Ids are digits only: nothing can redirect a call elsewhere. */
-const ALLOWED_PATHS = /^\d+\/(messages|message_templates|subscribed_apps|phone_numbers\?fields=id,display_phone_number,verified_name,name_status)$/
+const ALLOWED_PATHS = /^\d+(\/(messages|media|message_templates|subscribed_apps|phone_numbers\?fields=id,display_phone_number,verified_name,name_status))?$/
+
+/** Where Meta serves media files from: nothing else is ever fetched with the number's token. */
+const MEDIA_HOSTS = /(^|\.)(fbsbx\.com|facebook\.com|whatsapp\.net|fbcdn\.net)$/
+/** Larger files are not kept (a payment receipt is a few hundred KB). */
+const MAX_MEDIA_BYTES = 5 * 1024 * 1024
+const mediaResponseSchema = z.object({ url: z.url(), mime_type: z.string().min(1) })
+const uploadResponseSchema = z.object({ id: z.string().min(1) })
 
 const REQUEST_TIMEOUT_MS = 15_000
 
@@ -93,7 +125,7 @@ const REQUEST_TIMEOUT_MS = 15_000
  * Thin transport over the Graph API (reused from project-1). Multi-company: the
  * number or account and its token come with every call. No business rules here.
  */
-export class CloudApiClient implements WhatsAppSender, TemplateRegistry, WabaDirectory {
+export class CloudApiClient implements WhatsAppSender, TypingIndicator, MediaDownloader, TemplateRegistry, WabaDirectory {
   constructor(
     private readonly apiVersion: string,
     private readonly fetchFn: typeof fetch = fetch,
@@ -108,6 +140,40 @@ export class CloudApiClient implements WhatsAppSender, TemplateRegistry, WabaDir
       ? [{ type: 'body', parameters: bodyParameters.map((text) => ({ type: 'text', text })) }]
       : []
     return this.sendMessage(phoneNumberId, accessToken, { to, type: 'template', template: { name, language: { code: language }, components } })
+  }
+
+  /** Meta takes the file first (POST /media) and the message then points to it by id. */
+  async sendImage({ phoneNumberId, accessToken, to, image, caption }: ImageMessage): Promise<{ waMessageId: string }> {
+    if (!image.bytes.length || image.bytes.length > MAX_MEDIA_BYTES) throw new WhatsAppApiError('Image empty or too large', null, null)
+    const form = new FormData()
+    form.append('messaging_product', 'whatsapp')
+    form.append('type', image.mimeType)
+    form.append('file', new Blob([new Uint8Array(image.bytes)], { type: image.mimeType }), image.filename)
+    const parsed = uploadResponseSchema.safeParse(await this.request('POST', `${phoneNumberId}/media`, accessToken, form))
+    if (!parsed.success) throw new WhatsAppApiError('Cloud API returned no media id', null, null)
+    return this.sendMessage(phoneNumberId, accessToken, { to, type: 'image', image: { id: parsed.data.id, caption } })
+  }
+
+  async showTyping({ phoneNumberId, accessToken, waMessageId }: { phoneNumberId: string; accessToken: string; waMessageId: string }): Promise<void> {
+    await this.post(`${phoneNumberId}/messages`, accessToken, { messaging_product: 'whatsapp', status: 'read', message_id: waMessageId, typing_indicator: { type: 'text' } })
+  }
+
+  /** Meta gives a short-lived URL for the media id; the file is fetched from it with the same token. */
+  async downloadMedia(mediaId: string, accessToken: string): Promise<DownloadedMedia> {
+    const parsed = mediaResponseSchema.safeParse(await this.request('GET', mediaId, accessToken))
+    if (!parsed.success) throw new WhatsAppApiError('Cloud API returned no media url', null, null)
+    const url = new URL(parsed.data.url)
+    if (url.protocol !== 'https:' || !MEDIA_HOSTS.test(url.hostname)) throw new WhatsAppApiError('Unexpected media host', null, null)
+    let response: Response
+    try {
+      response = await this.fetchFn(url, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS * 2) })
+    } catch (error) {
+      throw new WhatsAppApiError(`Media download failed (${error instanceof Error ? error.name : 'unknown'})`, null, null)
+    }
+    if (!response.ok) throw new WhatsAppApiError(`Media download answered ${response.status}`, response.status, null)
+    const bytes = Buffer.from(await response.arrayBuffer())
+    if (!bytes.length || bytes.length > MAX_MEDIA_BYTES) throw new WhatsAppApiError('Media file empty or too large', null, null)
+    return { bytes, mimeType: parsed.data.mime_type }
   }
 
   async submitTemplate(submission: TemplateSubmission): Promise<{ metaTemplateId: string; status: string }> {
@@ -146,7 +212,8 @@ export class CloudApiClient implements WhatsAppSender, TemplateRegistry, WabaDir
     return this.request('POST', path, accessToken, payload)
   }
 
-  private async request(method: 'GET' | 'POST', path: string, accessToken: string, payload?: object): Promise<unknown> {
+  /** A plain object goes as JSON; a form (a file upload) as multipart, its boundary set by fetch. */
+  private async request(method: 'GET' | 'POST', path: string, accessToken: string, payload?: object | FormData): Promise<unknown> {
     if (!ALLOWED_PATHS.test(path)) throw new WhatsAppApiError('Invalid Graph API path', null, null)
     const url = `https://graph.facebook.com/${this.apiVersion}/${path}`
 
@@ -154,8 +221,8 @@ export class CloudApiClient implements WhatsAppSender, TemplateRegistry, WabaDir
     try {
       response = await this.fetchFn(url, {
         method,
-        headers: { Authorization: `Bearer ${accessToken}`, ...(payload ? { 'Content-Type': 'application/json' } : {}) },
-        ...(payload ? { body: JSON.stringify(payload) } : {}),
+        headers: { Authorization: `Bearer ${accessToken}`, ...(payload && !(payload instanceof FormData) ? { 'Content-Type': 'application/json' } : {}) },
+        ...(payload ? { body: payload instanceof FormData ? payload : JSON.stringify(payload) } : {}),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
     } catch (error) {

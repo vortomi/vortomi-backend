@@ -232,6 +232,167 @@
       "when": 1793116194310,
       "tag": "0032_custom_fields_security",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793122164052,
+      "tag": "0033_business_types_and_setup",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793122184849,
+      "tag": "0034_drop_tenant_industry",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1793122187036,
+      "tag": "0035_business_types_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1793222650139,
+      "tag": "0036_conversation_assignees",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1793222656085,
+      "tag": "0037_conversation_assignees_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793222674911,
+      "tag": "0038_drop_conversation_assigned_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1793288406951,
+      "tag": "0039_sales_agent",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1793288409118,
+      "tag": "0040_sales_agent_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1793292003999,
+      "tag": "0041_catalog_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1793292006127,
+      "tag": "0042_catalog_sources_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1793293982790,
+      "tag": "0043_delivery_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1793293984869,
+      "tag": "0044_delivery_settings_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1793294333456,
+      "tag": "0045_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1793294335606,
+      "tag": "0046_orders_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1793296400715,
+      "tag": "0047_order_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1793296409764,
+      "tag": "0048_order_payments_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1793296795669,
+      "tag": "0049_payment_methods",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1793296797990,
+      "tag": "0050_drop_old_payment_method",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1793296809730,
+      "tag": "0051_payment_methods_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1793305384868,
+      "tag": "0052_system_rate_choice",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1793633566166,
+      "tag": "0053_two_decimal_quantities",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1793635127513,
+      "tag": "0054_sale_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1793635133407,
+      "tag": "0055_sale_receipts_security",
+      "breakpoints": true
     }
   ]
 }

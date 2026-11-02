@@ -39,7 +39,9 @@ const taxId = z
 
 export const tenantInput = z.object({
   name: z.string().trim().min(1).max(80),
-  industry: z.string().trim().max(60).default(''),
+  // One of the platform's business types; under «other», what the company does, for our team.
+  businessType: z.string().regex(/^[a-z0-9_]{2,40}$/),
+  businessTypeOther: z.string().trim().max(60).default(''),
   city: z.string().trim().max(60).default(''),
   timezone: timeZone.default('America/Caracas'),
   plan: z.enum(TENANT_PLANS),
@@ -74,7 +76,8 @@ const tenantColumns = {
   slug: tenants.slug,
   status: tenants.status,
   plan: tenants.plan,
-  industry: tenants.industry,
+  businessType: tenants.businessType,
+  businessTypeOther: tenants.businessTypeOther,
   city: tenants.city,
   timezone: tenants.timezone,
   legalName: tenants.legalName,

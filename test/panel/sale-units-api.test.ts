@@ -82,13 +82,14 @@ describe('how a product is sold', () => {
     expect(history.map((m) => m.quantity)).toEqual([-0.75, 12.5])
   })
 
-  it('no fractions of what counts whole, and never more than 3 decimals', async () => {
+  it('no fractions of what counts whole, and never more than 2 decimals', async () => {
     const filter = (await product('Filtro')).variants[0]!
     expect((await call(who.laura, 'POST', `/inventory/variants/${filter.id}/movements`, { kind: 'purchase', quantity: 1.5 })).json()).toEqual({ error: 'invalid_quantity' })
     const halfStock = { name: 'Tornillo', stockMode: 'units', variants: [{ name: 'Única', sku: 'TO-1', priceCents: 10, initialStock: 0.5 }] }
     expect((await call(who.laura, 'POST', '/inventory/products', halfStock)).json()).toEqual({ error: 'invalid_quantity' })
     const cheeseVariant = (await product('Queso blanco')).variants[0]!
-    expect((await call(who.laura, 'POST', `/inventory/variants/${cheeseVariant.id}/movements`, { kind: 'purchase', quantity: 1.0005 })).statusCode).toBe(400)
+    expect((await call(who.laura, 'POST', `/inventory/variants/${cheeseVariant.id}/movements`, { kind: 'purchase', quantity: 1.125 })).statusCode).toBe(400)
+    expect((await call(who.laura, 'POST', `/inventory/variants/${cheeseVariant.id}/movements`, { kind: 'purchase', quantity: 0.15 })).statusCode).toBe(201)
   })
 
   it('minimums and steps come from the offered lists and fit the unit', async () => {

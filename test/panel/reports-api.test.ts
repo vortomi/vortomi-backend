@@ -3,11 +3,10 @@
 // into the last pipeline stage, by whoever made them). Counts only, for admins only.
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
-import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { contacts, conversations, messages } from '../../src/db/schema/index.ts'
 import { buildTestApp } from '../helpers/app.ts'
-import { bearer, seedMembership, seedUser } from '../helpers/auth.ts'
+import { bearer, seedAssignees, seedMembership, seedUser } from '../helpers/auth.ts'
 import { createTestDatabase, type TestDatabase } from '../helpers/test-db.ts'
 import { type SeededTenant, seedTwoTenants } from '../helpers/tenants.ts'
 
@@ -64,10 +63,11 @@ beforeAll(async () => {
   const fast = await conversationAt('584125550001', '2026-10-20T14:00:00Z')
   await replyAt(fast.conversationId, who.carlos, '2026-10-20T14:05:00Z')
   firstContact = fast.contactId
+  await seedAssignees(t.db, a.tenantId, fast.conversationId, who.carlos)
   const slow = await conversationAt('584125550002', '2026-10-20T15:00:00Z')
   await replyAt(slow.conversationId, who.carlos, '2026-10-20T16:00:00Z')
   const waiting = await conversationAt('584125550003', '2026-10-20T15:30:00Z')
-  await t.db.update(conversations).set({ assignedUserId: who.laura }).where(eq(conversations.id, waiting.conversationId))
+  await seedAssignees(t.db, a.tenantId, waiting.conversationId, who.laura)
 })
 
 afterAll(async () => {

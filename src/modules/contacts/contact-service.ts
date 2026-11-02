@@ -5,7 +5,7 @@ import { type Cursor, encodeCursor, likePattern } from '../../shared/pagination.
 import type { MemberScope } from '../access/member-scope.ts'
 import type { CustomFieldService } from '../custom-fields/custom-field-service.ts'
 import { checkValues, customValuesInput } from '../custom-fields/custom-values.ts'
-import { canAttend, visibleContacts } from '../conversations/visibility.ts'
+import { visibleContacts } from '../conversations/visibility.ts'
 import { StageNotFoundError } from '../workspace/pipeline-service.ts'
 
 export class ContactNotFoundError extends Error {
@@ -19,14 +19,6 @@ export class UnknownTagError extends Error {
   constructor() {
     super('One or more tags do not exist in this company')
     this.name = 'UnknownTagError'
-  }
-}
-
-/** The person does not attend that number, so they cannot add contacts to it. */
-export class ChannelNotAttendedError extends Error {
-  constructor() {
-    super('The member does not attend that number')
-    this.name = 'ChannelNotAttendedError'
   }
 }
 
@@ -150,11 +142,10 @@ export class ContactService {
   }
 
   /**
-   * A contact typed by hand, before they ever write: on a number the person attends. The same
+   * A contact typed by hand, before they ever write, on one of the company's numbers. The same
    * phone on the same number twice fails on its unique key (409 contact_exists).
    */
   async create(scope: MemberScope, input: ContactInput) {
-    if (!canAttend(scope.member, input.channelAccountId)) throw new ChannelNotAttendedError()
     if (input.stageId) {
       const [stage] = await scope.tx
         .select({ id: pipelineStages.id })
@@ -187,7 +178,6 @@ export class ContactService {
    * get it, if they had none) and gain the tags. All or nothing: one bad row stops the import.
    */
   async import(scope: MemberScope, input: ImportInput): Promise<{ created: number; updated: number }> {
-    if (!canAttend(scope.member, input.channelAccountId)) throw new ChannelNotAttendedError()
     await this.knownTags(scope, input.rows.flatMap((r) => r.tagIds))
     // The last row of a repeated phone wins, like a spreadsheet.
     const rows = [...new Map(input.rows.map((r) => [r.waId, r])).values()]

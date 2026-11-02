@@ -1,10 +1,10 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, notInArray, sql } from 'drizzle-orm'
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core'
 import type { ConversationStatus } from '../../db/schema/enums.ts'
-import { conversations, notes } from '../../db/schema/index.ts'
+import { conversationAssignees, conversations, notes } from '../../db/schema/index.ts'
 import { type MemberScope, findActiveMember } from '../access/member-scope.ts'
+import { returnToAgent } from './agent-handoff.ts'
 import type { ConversationQueries } from './conversation-queries.ts'
-import { canAttend } from './visibility.ts'
 
 export class ConversationNotFoundError extends Error {
   constructor() {
@@ -15,7 +15,7 @@ export class ConversationNotFoundError extends Error {
 
 export class AssigneeCannotAttendError extends Error {
   constructor() {
-    super('Assignee is not an active member who attends this number')
+    super('Assignee is not an active member of this company')
     this.name = 'AssigneeCannotAttendError'
   }
 }
@@ -53,23 +53,36 @@ export class ConversationCommands {
     await this.update(scope, conversationId, { lastReadAt: sql`now()` })
   }
 
+  /** Resolving also ends a hand-off: the person is done, so the agent answers what comes next. */
   async setStatus(scope: MemberScope, conversationId: string, status: ConversationStatus): Promise<void> {
     await this.visible(scope, conversationId)
     await this.update(scope, conversationId, { status })
+    if (status === 'resolved') await returnToAgent(scope, conversationId)
   }
 
   /**
-   * Hands the conversation to someone (or to nobody). The assignee must be an active
-   * member who attends that number; the composite foreign key already guarantees
-   * they are of this company.
+   * Sets everyone who attends the conversation (admins only, enforced by the route); an empty
+   * list leaves it unassigned. Each person must be an active member; the composite foreign key
+   * already guarantees they are of this company. Those kept keep their original date.
    */
-  async assign(scope: MemberScope, conversationId: string, assigneeId: string | null): Promise<void> {
-    const conversation = await this.visible(scope, conversationId)
-    if (assigneeId) {
-      const assignee = await findActiveMember(scope, assigneeId)
-      if (!assignee || !canAttend(assignee, conversation.channelAccountId)) throw new AssigneeCannotAttendError()
+  async assign(scope: MemberScope, conversationId: string, userIds: readonly string[]): Promise<void> {
+    await this.visible(scope, conversationId)
+    const wanted = [...new Set(userIds)]
+    for (const userId of wanted) if (!(await findActiveMember(scope, userId))) throw new AssigneeCannotAttendError()
+    const where = and(eq(conversationAssignees.tenantId, scope.tenantId), eq(conversationAssignees.conversationId, conversationId))
+    await scope.tx.delete(conversationAssignees).where(wanted.length ? and(where, notInArray(conversationAssignees.userId, wanted)) : where)
+    if (wanted.length) {
+      await scope.tx
+        .insert(conversationAssignees)
+        .values(wanted.map((userId) => ({ tenantId: scope.tenantId, conversationId, userId })))
+        .onConflictDoNothing()
     }
-    await this.update(scope, conversationId, { assignedUserId: assigneeId })
+  }
+
+  /** Hands a conversation back to the sales agent: it may answer the customer's next message. */
+  async resumeAgent(scope: MemberScope, conversationId: string): Promise<void> {
+    await this.visible(scope, conversationId)
+    await returnToAgent(scope, conversationId)
   }
 
   async notes(scope: MemberScope, conversationId: string) {

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose'
 import type { Database } from '../../src/db/client.ts'
 import type { MemberRole, MembershipStatus, PlatformRole } from '../../src/db/schema/enums.ts'
-import { membershipChannels, memberships, users } from '../../src/db/schema/index.ts'
+import { conversationAssignees, conversations, membershipChannels, memberships, users } from '../../src/db/schema/index.ts'
 import { SupabaseTokenVerifier } from '../../src/modules/access/supabase-token-verifier.ts'
 
 /** Stands in for a Supabase project: its URL and one ES256 signing key, like the real JWKS. */
@@ -65,4 +65,16 @@ export async function seedMembership(db: Database, tenantId: string, userId: str
   for (const channelAccountId of options.channelAccountIds ?? []) {
     await db.insert(membershipChannels).values({ tenantId, userId, channelAccountId })
   }
+}
+
+/** Puts people in charge of a conversation, straight in the database (admins do it through the API). */
+export async function seedAssignees(db: Database, tenantId: string, conversationId: string, ...userIds: string[]): Promise<void> {
+  await db.insert(conversationAssignees).values(userIds.map((userId) => ({ tenantId, conversationId, userId })))
+}
+
+/** A conversation for a contact typed by hand, attended by those people: what lets an agent see the contact. */
+export async function seedConversationFor(db: Database, tenantId: string, contactId: string, ...userIds: string[]): Promise<string> {
+  const [row] = await db.insert(conversations).values({ tenantId, contactId }).returning({ id: conversations.id })
+  if (userIds.length) await seedAssignees(db, tenantId, row!.id, ...userIds)
+  return row!.id
 }

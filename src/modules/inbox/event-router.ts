@@ -1,7 +1,7 @@
 import type { Database } from '../../db/client.ts'
 import type { IngestService } from '../conversations/ingest.service.ts'
 import type { MessageStatusService } from '../conversations/message-status.service.ts'
-import type { AwayReplyService } from '../messaging/away-reply.ts'
+import type { AutoResponder } from '../messaging/auto-responder.ts'
 import type { TemplateService } from '../templates/template-service.ts'
 import type { ChannelDirectory } from '../tenancy/channel-directory.ts'
 import { withTenant } from '../tenancy/tenant-scope.ts'
@@ -22,7 +22,7 @@ export class EventRouter implements WhatsAppEventHandler {
     private readonly statuses: MessageStatusService,
     private readonly templates: Pick<TemplateService, 'applyStatus'>,
     // Optional so tests about routing need no Meta double; main.ts always passes it.
-    private readonly awayReply: Pick<AwayReplyService, 'afterInbound'> | null = null,
+    private readonly autoReply: Pick<AutoResponder, 'afterInbound'> | null = null,
   ) {}
 
   handle(event: WhatsAppEvent): Promise<EventOutcome> {
@@ -45,7 +45,13 @@ export class EventRouter implements WhatsAppEventHandler {
     })
     // After the commit: the customer's message is stored whatever happens with the answer.
     if (inbound?.isNew && event.kind === 'inbound_message') {
-      await this.awayReply?.afterInbound(route.tenantId, { conversationId: inbound.conversationId, waMessageId: event.waMessageId, timestamp: event.timestamp })
+      await this.autoReply?.afterInbound(route.tenantId, {
+        conversationId: inbound.conversationId,
+        waMessageId: event.waMessageId,
+        timestamp: event.timestamp,
+        type: event.type,
+        waMediaId: event.waMediaId,
+      })
     }
     return 'handled'
   }

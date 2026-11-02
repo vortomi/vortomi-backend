@@ -5,6 +5,7 @@ import type { Database } from '../../src/db/client.ts'
 import { ChannelCredentials } from '../../src/modules/channels/channel-credentials.ts'
 import { CredentialCipher } from '../../src/modules/channels/credential-cipher.ts'
 import {
+  type ImageMessage,
   type TemplateMessage,
   type TemplateRegistry,
   type TemplateSubmission,
@@ -23,7 +24,7 @@ import { APP_SECRET, VERIFY_TOKEN } from './meta-payloads.ts'
 
 /** Stands in for Meta: records every message and answers what the test tells it to. */
 export class FakeSender implements WhatsAppSender {
-  readonly sent: (TextMessage | TemplateMessage)[] = []
+  readonly sent: (TextMessage | TemplateMessage | ImageMessage)[] = []
   private next: (() => Promise<{ waMessageId: string }>) | null = null
 
   failNextWith(code: number, message = 'Rejected by Meta'): void {
@@ -34,7 +35,11 @@ export class FakeSender implements WhatsAppSender {
     return this.sendText(message)
   }
 
-  sendText(message: TextMessage | TemplateMessage): Promise<{ waMessageId: string }> {
+  sendImage(message: ImageMessage): Promise<{ waMessageId: string }> {
+    return this.sendText(message)
+  }
+
+  sendText(message: TextMessage | TemplateMessage | ImageMessage): Promise<{ waMessageId: string }> {
     this.sent.push(message)
     const answer = this.next
     this.next = null

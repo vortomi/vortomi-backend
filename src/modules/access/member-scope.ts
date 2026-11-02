@@ -1,7 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client.ts'
 import type { MemberRole } from '../../db/schema/enums.ts'
-import { membershipChannels, memberships, tenants } from '../../db/schema/index.ts'
+import { memberships, tenants } from '../../db/schema/index.ts'
 import { type TenantScope, withTenant } from '../tenancy/tenant-scope.ts'
 
 /** The caller's place in the company the request is about. */
@@ -9,8 +9,6 @@ export interface Member {
   readonly userId: string
   readonly role: MemberRole
   readonly canSeeOthers: boolean
-  /** Numbers assigned to this person; admins reach every number regardless. */
-  readonly channelAccountIds: readonly string[]
 }
 
 export interface MemberScope extends TenantScope {
@@ -32,7 +30,7 @@ export class NotAMemberError extends Error {
   }
 }
 
-/** An active member of the scope's company with their numbers, or null. Runs under RLS. */
+/** An active member of the scope's company, or null. Runs under RLS. */
 export async function findActiveMember(scope: TenantScope, userId: string): Promise<Member | null> {
   const { tx, tenantId } = scope
   const [membership] = await tx
@@ -40,12 +38,7 @@ export async function findActiveMember(scope: TenantScope, userId: string): Prom
     .from(memberships)
     .where(and(eq(memberships.tenantId, tenantId), eq(memberships.userId, userId)))
   if (membership?.status !== 'active') return null
-
-  const channels = await tx
-    .select({ id: membershipChannels.channelAccountId })
-    .from(membershipChannels)
-    .where(and(eq(membershipChannels.tenantId, tenantId), eq(membershipChannels.userId, userId)))
-  return { userId, role: membership.role, canSeeOthers: membership.canSeeOthers, channelAccountIds: channels.map((channel) => channel.id) }
+  return { userId, role: membership.role, canSeeOthers: membership.canSeeOthers }
 }
 
 /**

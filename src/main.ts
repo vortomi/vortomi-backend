@@ -14,7 +14,14 @@ import { WebhookInbox } from './modules/inbox/webhook-inbox.ts'
 import { WebhookProcessor } from './modules/inbox/webhook-processor.ts'
 import { BcvRateService } from './modules/exchange-rates/bcv-rate.service.ts'
 import { HttpBcvSource } from './modules/exchange-rates/bcv-source.ts'
+import { GeminiModel } from './modules/agent/gemini-model.ts'
+import { SalesAgent } from './modules/agent/sales-agent.ts'
+import { CatalogSources } from './modules/catalog-source/catalog-sources.ts'
+import { CatalogCache } from './modules/catalog-source/external-catalog.ts'
+import { AutoResponder } from './modules/messaging/auto-responder.ts'
+import { ReceiptCollector } from './modules/orders/receipt-collector.ts'
 import { AwayReplyService } from './modules/messaging/away-reply.ts'
+import { BotDelivery } from './modules/messaging/bot-delivery.ts'
 import { InboxFeed } from './modules/realtime/inbox-feed.ts'
 import { ChannelDirectory } from './modules/tenancy/channel-directory.ts'
 import { CloudApiClient } from './modules/whatsapp/cloud-api.client.ts'
@@ -22,6 +29,8 @@ import { TemplateService } from './modules/templates/template-service.ts'
 import { parseWebhookPayload } from './modules/whatsapp/webhook-parser.ts'
 
 const SWEEP_INTERVAL_MS = 60_000
+/** The agent waits this long after a customer message: several quick messages get one answer. */
+const AGENT_DEBOUNCE_MS = 4_000
 
 async function main(): Promise<void> {
   if (existsSync('.env')) process.loadEnvFile('.env')
@@ -44,12 +53,15 @@ async function main(): Promise<void> {
     ...(env.NODE_ENV === 'development' ? { transport: { target: 'pino-pretty' } } : {}),
   }
 
-  const credentials = new ChannelCredentials(db, new CredentialCipher(env.CREDENTIALS_ENCRYPTION_KEY))
+  const cipher = new CredentialCipher(env.CREDENTIALS_ENCRYPTION_KEY)
+  const credentials = new ChannelCredentials(db, cipher)
   const cloudApi = new CloudApiClient(env.GRAPH_API_VERSION)
   const feed = new InboxFeed()
   // Its logger is the app's: bound once the app exists (only used after listen()).
   const bcvLog = { warn: (message: string) => app.log.warn(message), error: (obj: object, message: string) => app.log.error(obj, message) }
   const bcv = new BcvRateService(db, new HttpBcvSource(bcvLog), bcvLog)
+  // Companies whose catalog lives in their own system: read live, at most once per 90 s each.
+  const catalogs = new CatalogSources(db, cipher, new CatalogCache({ ttlMs: 90_000, staleMaxMs: 600_000, minRemaining: 10 }))
 
   // The app is built first so the processing pipeline can share its logger.
   // The webhook callback only runs after listen(), when `inbox` exists.
@@ -65,12 +77,22 @@ async function main(): Promise<void> {
       wabaDirectory: cloudApi,
       feed,
       bcv,
+      catalogs,
+      agent: { modelReady: Boolean(env.GEMINI_API_KEY), monthlyCap: env.AGENT_MONTHLY_REPLY_CAP },
       onVerifiedPayload: async (payload) => {
         await inbox.receive(payload)
       },
     },
     logger,
   )
+
+  // Automatic answers: the sales agent where its company keeps it on, else the away message.
+  // Without a model key the agent stays off for every company.
+  const delivery = new BotDelivery(db, credentials, cloudApi, cloudApi)
+  const model = env.GEMINI_API_KEY ? new GeminiModel(env.GEMINI_API_KEY, env.AGENT_MODEL) : null
+  const salesAgent = new SalesAgent(db, delivery, model, { monthlyCap: env.AGENT_MONTHLY_REPLY_CAP, debounceMs: AGENT_DEBOUNCE_MS, log: app.log, catalogs })
+  const receipts = new ReceiptCollector(db, credentials, cloudApi, delivery, app.log)
+  const autoResponder = new AutoResponder(salesAgent, new AwayReplyService(db, delivery, app.log), app.log, receipts)
 
   const repository = new WebhookEventRepository(db)
   const router = new EventRouter(
@@ -79,7 +101,7 @@ async function main(): Promise<void> {
     new IngestService(),
     new MessageStatusService(),
     new TemplateService(db, credentials, cloudApi),
-    new AwayReplyService(db, credentials, cloudApi, app.log),
+    autoResponder,
   )
   const processor = new WebhookProcessor(repository, parseWebhookPayload, router, app.log)
   const queue = new SerialQueue(

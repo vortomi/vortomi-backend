@@ -50,7 +50,7 @@ const view = async (userId = who.laura, tenantId = a.tenantId) => (await call(us
 
 describe('a rate typed by hand', () => {
   it('starts with no rate and the typed source', async () => {
-    expect(await view()).toEqual({ rateSource: 'custom', bcv: { bsPerUsd: null, effectiveDate: null, checkedAt: null, error: null }, exchangeRates: [] })
+    expect(await view()).toEqual({ rateSource: 'custom', bcv: { bsPerUsd: null, effectiveDate: null, checkedAt: null, error: null }, exchangeRates: [], system: null })
   })
 
   it('an admin registers it; it is the rate at once and keeps the previous one; agents only read', async () => {
@@ -107,6 +107,43 @@ describe('the BCV rate', () => {
     await call(who.laura, 'POST', '/exchange-rates/bcv')
     expect(bcvPage.reads).toBe(before)
     expect(back).toMatchObject({ rateSource: 'custom', exchangeRates: [{ bsPerUsd: '887.30200000', source: 'bcv' }, {}, {}] })
+  })
+})
+
+describe('a company with its own catalog system', () => {
+  let own: FastifyInstance
+  const asked: string[] = []
+  beforeAll(async () => {
+    // Plays catalog-source: only company A has its own system.
+    const catalogs = {
+      systemRate: (tenantId: string) => {
+        asked.push(tenantId)
+        return Promise.resolve(tenantId === a.tenantId ? { bsPerUsd: '888.12', rateDate: '2026-10-28T23:10:27.773Z' } : null)
+      },
+    }
+    own = await buildTestApp(t.db, { catalogs })
+  })
+  afterAll(async () => {
+    await own.close()
+  })
+  const ownCall = async (userId: string, method: 'GET' | 'PUT', path: string, payload?: object, tenantId = a.tenantId) =>
+    own.inject({ method, url: `/api/tenants/${tenantId}${path}`, headers: await bearer(userId), ...(payload ? { payload } : {}) })
+
+  it('the card shows its rate, used by default; a company without one sees nothing of it', async () => {
+    expect((await ownCall(who.carlos, 'GET', '/exchange-rates')).json<ExchangeRateView>().system).toEqual({ useSystemRate: true, bsPerUsd: '888.12', rateDate: '2026-10-28T23:10:27.773Z' })
+    expect((await ownCall(who.boris, 'GET', '/exchange-rates', undefined, b.tenantId)).json<ExchangeRateView>().system).toBeNull()
+  })
+
+  it('only an admin turns it off, and the choice stays; an outsider never makes us ask the system', async () => {
+    expect((await ownCall(who.carlos, 'PUT', '/exchange-rates/system', { useSystemRate: false })).json()).toEqual({ error: 'admin_required' })
+    expect((await ownCall(who.laura, 'PUT', '/exchange-rates/system', { useSystemRate: 'no' })).statusCode).toBe(400)
+    const off = (await ownCall(who.laura, 'PUT', '/exchange-rates/system', { useSystemRate: false })).json<ExchangeRateView>()
+    expect(off.system).toMatchObject({ useSystemRate: false, bsPerUsd: '888.12' })
+    expect(off.rateSource).toBe('custom')
+    expect((await ownCall(who.carlos, 'GET', '/exchange-rates')).json<ExchangeRateView>().system?.useSystemRate).toBe(false)
+    asked.length = 0
+    expect((await ownCall(who.boris, 'GET', '/exchange-rates')).statusCode).toBe(403)
+    expect(asked).toEqual([])
   })
 })
 

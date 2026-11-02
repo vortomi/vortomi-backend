@@ -1,0 +1,1 @@
+ALTER TABLE "tenant_settings" ADD COLUMN "use_system_rate" boolean DEFAULT true NOT NULL;

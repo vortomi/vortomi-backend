@@ -30,6 +30,14 @@ const envSchema = z.object({
 
   // How often the BCV rate is read for the companies that use it: 1 hour; 0 turns it off.
   BCV_CHECK_INTERVAL_MS: z.coerce.number().int().min(0).max(86_400_000).default(3_600_000),
+
+  // The sales agent's model (Google Gemini). Without a key the agent stays off for everyone,
+  // whatever each company chose. Free tier while testing: it uses the data to improve Google's
+  // products, so real customers need the paid tier.
+  GEMINI_API_KEY: z.string().min(20).optional(),
+  AGENT_MODEL: z.string().regex(/^[a-z0-9.-]+$/).default('gemini-3.5-flash-lite'),
+  // Answers per company and month; past it the conversations go to a person. 0 = no answers.
+  AGENT_MONTHLY_REPLY_CAP: z.coerce.number().int().min(0).max(1_000_000).default(1000),
 })
 
 export type Env = z.infer<typeof envSchema>

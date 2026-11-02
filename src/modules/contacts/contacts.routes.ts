@@ -38,8 +38,9 @@ export const contactRoutes: FastifyPluginCallback<ContactRoutesOptions> = (app, 
     }),
   )
 
+  // An agent only sees the customers of their conversations, so adding customers is an admin's call.
   app.post('/contacts', async (request, reply) =>
-    reply.code(201).send(await inCompany(db, request, (scope) => contacts.create(scope, parseInput(contactInput, request.body)))),
+    reply.code(201).send(await asAdmin(db, request, (scope) => contacts.create(scope, parseInput(contactInput, request.body)))),
   )
 
   // A whole list at once is an admin's call.
@@ -63,8 +64,9 @@ export const contactRoutes: FastifyPluginCallback<ContactRoutesOptions> = (app, 
     return reply.code(204).send()
   })
 
+  // Who is in charge of a customer is decided by admins, like who attends a conversation.
   app.put('/contacts/:contactId/owner', async (request, reply) => {
-    await inCompany(db, request, (scope) =>
+    await asAdmin(db, request, (scope) =>
       contacts.setOwner(scope, parseInput(contactParams, request.params).contactId, parseInput(ownerBody, request.body).ownerUserId),
     )
     return reply.code(204).send()

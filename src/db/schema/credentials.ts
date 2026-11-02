@@ -1,6 +1,8 @@
-import { foreignKey, pgTable, text, uuid } from 'drizzle-orm/pg-core'
-import { tenantIdColumn, timestamptz } from './columns.ts'
-import { channelAccounts } from './tenancy.ts'
+import { sql } from 'drizzle-orm'
+import { check, foreignKey, pgTable, text, uuid } from 'drizzle-orm/pg-core'
+import { oneOf, tenantIdColumn, timestamptz } from './columns.ts'
+import { CATALOG_SOURCE_KINDS } from './enums.ts'
+import { channelAccounts, tenants } from './tenancy.ts'
 
 /**
  * Access token each number sends with, encrypted (modules/channels/credential-cipher.ts).
@@ -21,5 +23,27 @@ export const channelCredentials = pgTable(
       columns: [t.tenantId, t.channelAccountId],
       foreignColumns: [channelAccounts.tenantId, channelAccounts.id],
     }).onDelete('cascade'),
+  ],
+)
+
+/**
+ * A company whose catalog lives in its own system (prices and availability read live), with the
+ * key to that system encrypted like the numbers' tokens. Platform-only, like channel_credentials:
+ * RLS on and no grant to tenant_scoped (drizzle security migration of this table).
+ */
+export const catalogSources = pgTable(
+  'catalog_sources',
+  {
+    tenantId: uuid('tenant_id')
+      .primaryKey()
+      .references(() => tenants.id),
+    kind: text('kind', { enum: CATALOG_SOURCE_KINDS }).notNull(),
+    baseUrl: text('base_url').notNull(),
+    encryptedApiKey: text('encrypted_api_key').notNull(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check('catalog_sources_kind_check', oneOf(t.kind, CATALOG_SOURCE_KINDS)),
+    check('catalog_sources_base_url_check', sql`${t.baseUrl} ~ '^https://'`),
   ],
 )

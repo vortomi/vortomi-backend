@@ -1,5 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm'
-import { bigint, jsonb, timestamp, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core'
+import { bigint, jsonb, numeric, timestamp, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core'
 
 /** Random UUID key: ids that leave the server must not be guessable or enumerable. */
 export const uuidIdColumn = () => uuid('id').primaryKey().defaultRandom()
@@ -13,6 +13,9 @@ export const tenantIdColumn = () => uuid('tenant_id').notNull()
 export const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
 
 export const createdAtColumn = () => timestamptz('created_at').notNull().defaultNow()
+
+/** A quantity in a product's sale unit: up to 2 decimals (0,10 kg is 100 g). Stock and order lines. */
+export const quantityColumn = (name: string) => numeric(name, { precision: 14, scale: 2, mode: 'number' })
 
 /** A company field's value: text, number, option id(s), yes/no or "YYYY-MM-DD" (custom-fields.ts). */
 export type CustomValue = string | number | boolean | string[]

@@ -2,7 +2,7 @@ import type { FastifyPluginCallback } from 'fastify'
 import { z } from 'zod'
 import type { Database } from '../../db/client.ts'
 import { CONVERSATION_STATUSES } from '../../db/schema/enums.ts'
-import { companyOf, inCompany } from '../../http/company-scope.ts'
+import { asAdmin, companyOf, inCompany } from '../../http/company-scope.ts'
 import { parseInput } from '../../http/validation.ts'
 import { PAGE_SIZE, decodeCursor } from '../../shared/pagination.ts'
 import type { OutboundService } from '../messaging/outbound.service.ts'
@@ -28,7 +28,8 @@ const listQuery = z.object({
   limit: limit(PAGE_SIZE.default),
 })
 const messagesQuery = z.object({ beforeId: z.coerce.number().int().positive().optional(), limit: limit(50) })
-const assignBody = z.object({ userId: z.uuid().nullable() })
+// Everyone who attends it; an empty list leaves it unassigned.
+const assignBody = z.object({ userIds: z.array(z.uuid()).max(20) })
 const statusBody = z.object({ status: z.enum(CONVERSATION_STATUSES) })
 // 4096 characters is the WhatsApp limit for a text message.
 const sendBody = z.object({ body: z.string().trim().min(1).max(4096), clientMessageId: z.uuid() })
@@ -90,11 +91,18 @@ export const conversationRoutes: FastifyPluginCallback<ConversationRoutesOptions
     return reply.code(204).send()
   })
 
-  app.put('/:conversationId/assignee', async (request, reply) => {
-    await inCompany(db, request, (scope) => {
+  // Only admins hand conversations out.
+  app.put('/:conversationId/assignees', async (request, reply) => {
+    await asAdmin(db, request, (scope) => {
       const { conversationId } = parseInput(conversationParams, request.params)
-      return commands.assign(scope, conversationId, parseInput(assignBody, request.body).userId)
+      return commands.assign(scope, conversationId, parseInput(assignBody, request.body).userIds)
     })
+    return reply.code(204).send()
+  })
+
+  // «Devolver al agente»: admins only, like handing conversations out.
+  app.delete('/:conversationId/handoff', async (request, reply) => {
+    await asAdmin(db, request, (scope) => commands.resumeAgent(scope, parseInput(conversationParams, request.params).conversationId))
     return reply.code(204).send()
   })
 

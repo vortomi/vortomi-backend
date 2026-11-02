@@ -8,6 +8,7 @@ import type { MemberScope } from '../access/member-scope.ts'
 const HISTORY_SIZE = 20
 
 export const rateSourceInput = z.object({ rateSource: z.enum(RATE_SOURCES) })
+export const systemRateInput = z.object({ useSystemRate: z.boolean() })
 
 /** "887.30" (point, up to 8 decimals) from today or any day: "Vigente desde" is a reference only. */
 export const manualRateInput = z.object({
@@ -33,11 +34,23 @@ export interface ExchangeRateView {
     createdAt: Date
     source: 'bcv' | 'manual'
   }[]
+  /**
+   * Only for a company with its own catalog system: whether it prices in bolívares at that
+   * system's rate, and that rate as last read (null while the system cannot be read).
+   */
+  system: { useSystemRate: boolean; bsPerUsd: string | null; rateDate: string | null } | null
+}
+
+/** The rate a company's own catalog system prices with, as last read. */
+export interface SystemRate {
+  bsPerUsd: string | null
+  rateDate: string | null
 }
 
 /** A company's exchange rate: where it comes from, and the rates it typed by hand. */
 export class ExchangeRateService {
-  async view(scope: MemberScope): Promise<ExchangeRateView> {
+  /** `systemRate`: the company's own system's rate (read outside the transaction); null without one. */
+  async view(scope: MemberScope, systemRate: SystemRate | null = null): Promise<ExchangeRateView> {
     const [bcv] = await scope.tx
       .select({ bsPerUsd: bcvStatus.rate, effectiveDate: bcvStatus.effectiveDate, checkedAt: bcvStatus.checkedAt, error: bcvStatus.error })
       .from(bcvStatus)
@@ -55,16 +68,34 @@ export class ExchangeRateService {
       .where(eq(exchangeRates.tenantId, scope.tenantId))
       .orderBy(desc(exchangeRates.createdAt))
       .limit(HISTORY_SIZE)
+    const settings = await this.settings(scope)
     return {
-      rateSource: await this.rateSource(scope),
+      rateSource: settings.rateSource,
       bcv: bcv ?? { bsPerUsd: null, effectiveDate: null, checkedAt: null, error: null },
       exchangeRates: history,
+      system: systemRate && { useSystemRate: settings.useSystemRate, ...systemRate },
     }
   }
 
   async rateSource(scope: MemberScope): Promise<RateSource> {
-    const [row] = await scope.tx.select({ rateSource: tenantSettings.rateSource }).from(tenantSettings).where(eq(tenantSettings.tenantId, scope.tenantId))
-    return row?.rateSource ?? 'custom'
+    return (await this.settings(scope)).rateSource
+  }
+
+  /** The company's choices, at their defaults until it saves any setting. */
+  private async settings(scope: MemberScope): Promise<{ rateSource: RateSource; useSystemRate: boolean }> {
+    const [row] = await scope.tx
+      .select({ rateSource: tenantSettings.rateSource, useSystemRate: tenantSettings.useSystemRate })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.tenantId, scope.tenantId))
+    return row ?? { rateSource: 'custom', useSystemRate: true }
+  }
+
+  /** Only that choice: the company's other settings stay as they are (or at their defaults). */
+  async setUseSystemRate(scope: MemberScope, useSystemRate: boolean): Promise<void> {
+    await scope.tx
+      .insert(tenantSettings)
+      .values({ tenantId: scope.tenantId, useSystemRate })
+      .onConflictDoUpdate({ target: tenantSettings.tenantId, set: { useSystemRate, updatedAt: sql`now()` } })
   }
 
   /** Only the source: the company's other settings stay as they are (or at their defaults). */

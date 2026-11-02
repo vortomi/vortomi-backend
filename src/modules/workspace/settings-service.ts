@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { WORK_MODES } from '../../db/schema/enums.ts'
+import { type SaleUnit, type StockMode, WORK_MODES } from '../../db/schema/enums.ts'
 import { tenantSettings, tenants } from '../../db/schema/index.ts'
 import { timeZone } from '../../shared/time-zone.ts'
 import type { MemberScope } from '../access/member-scope.ts'
@@ -26,16 +26,21 @@ export type SettingsInput = z.infer<typeof settingsInput>
 export const profileInput = z.object({ name: z.string().trim().min(1).max(80), timezone: timeZone })
 export type ProfileInput = z.infer<typeof profileInput>
 
+/** The settings plus what new products start with (set by the welcome, read-only here). */
+export type SettingsView = SettingsInput & { defaultSaleUnit: SaleUnit; defaultStockMode: StockMode }
+
 /** What a company that never saved its settings works with. */
-const DEFAULTS: SettingsInput = { workMode: 'sales_and_support', businessHours: [], awayMessage: '' }
+const DEFAULTS: SettingsView = { workMode: 'sales_and_support', businessHours: [], awayMessage: '', defaultSaleUnit: 'unit', defaultStockMode: 'units' }
 
 export class SettingsService {
-  async get(scope: MemberScope): Promise<SettingsInput> {
+  async get(scope: MemberScope): Promise<SettingsView> {
     const [row] = await scope.tx
       .select({
         workMode: tenantSettings.workMode,
         businessHours: tenantSettings.businessHours,
         awayMessage: tenantSettings.awayMessage,
+        defaultSaleUnit: tenantSettings.defaultSaleUnit,
+        defaultStockMode: tenantSettings.defaultStockMode,
       })
       .from(tenantSettings)
       .where(eq(tenantSettings.tenantId, scope.tenantId))
@@ -51,7 +56,7 @@ export class SettingsService {
     return row!
   }
 
-  async save(scope: MemberScope, input: SettingsInput): Promise<SettingsInput> {
+  async save(scope: MemberScope, input: SettingsInput): Promise<SettingsView> {
     await scope.tx
       .insert(tenantSettings)
       .values({ tenantId: scope.tenantId, ...input })

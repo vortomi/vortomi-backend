@@ -86,11 +86,19 @@ export type StockMode = (typeof STOCK_MODES)[number]
 /**
  * How a product is sold: its price is per one of these and quantities count in it. A closed
  * list kept by the platform (companies pick, never type). Pieces, grams and visits count
- * whole; weight, length, area, volume and hours take up to 3 decimals (DECIMAL_SALE_UNITS).
+ * whole; weight, length, area, volume and hours take up to 2 decimals (DECIMAL_SALE_UNITS).
  */
 export const SALE_UNITS = ['unit', 'pair', 'dozen', 'box', 'pack', 'roll', 'kg', 'g', 'm', 'm2', 'l', 'hour', 'service', 'session'] as const
 export type SaleUnit = (typeof SALE_UNITS)[number]
 export const DECIMAL_SALE_UNITS: readonly SaleUnit[] = ['kg', 'm', 'm2', 'l', 'hour']
+
+/** What a company sells, as it answers the welcome (block C). none: it only attends customers. */
+export const SELLS = ['products', 'services', 'both', 'none'] as const
+export type Sells = (typeof SELLS)[number]
+
+/** How it usually sells: by the unit, by weight, by length or volume, by time, or mixed. */
+export const SELL_METHODS = ['unit', 'weight', 'measure', 'time', 'mixed'] as const
+export type SellMethod = (typeof SELL_METHODS)[number]
 
 /** Whose data a company field describes: its products or its customers. */
 export const CUSTOM_FIELD_ENTITIES = ['product', 'contact'] as const
@@ -106,3 +114,55 @@ export type CustomFieldKind = (typeof CUSTOM_FIELD_KINDS)[number]
 /** Every stock change is one of these. Sign is fixed by kind (stock_movements_sign_check). */
 export const STOCK_MOVEMENT_KINDS = ['initial', 'purchase', 'sale', 'adjustment', 'loss', 'return'] as const
 export type StockMovementKind = (typeof STOCK_MOVEMENT_KINDS)[number]
+
+/** How the sales agent writes (closed list; the prompt spells each one out). */
+export const AGENT_TONES = ['friendly', 'formal', 'brief'] as const
+export type AgentTone = (typeof AGENT_TONES)[number]
+
+/** When the sales agent answers: all the time, or only while the company is closed. */
+export const AGENT_SCHEDULES = ['always', 'after_hours'] as const
+export type AgentSchedule = (typeof AGENT_SCHEDULES)[number]
+
+/** Why a conversation was passed from the agent to a person ('purchase': orders are taken by people, for now). */
+export const HANDOFF_REASONS = ['customer_asked', 'purchase', 'order_placed', 'agent_unsure', 'agent_error', 'limit_reached'] as const
+export type HandoffReason = (typeof HANDOFF_REASONS)[number]
+
+/**
+ * A company's own system the agent reads its catalog from, instead of Vortomi's inventory
+ * (closed list: one adapter per system, modules/catalog-source).
+ */
+export const CATALOG_SOURCE_KINDS = ['lacampina_v1'] as const
+export type CatalogSourceKind = (typeof CATALOG_SOURCE_KINDS)[number]
+
+/** How a company charges delivery: one price everywhere, or a price per zone it names. */
+export const DELIVERY_MODES = ['flat', 'zones'] as const
+export type DeliveryMode = (typeof DELIVERY_MODES)[number]
+
+/**
+ * Where an order stands: waiting for the customer's payment, payment receipt to review, confirmed
+ * by a person (the customer is told), done (delivered or picked up) or cancelled.
+ */
+export const ORDER_STATUSES = ['awaiting_payment', 'payment_review', 'confirmed', 'done', 'cancelled'] as const
+export type OrderStatus = (typeof ORDER_STATUSES)[number]
+
+/** Who makes an order's sale receipt: Vortomi, the team (its own image), or nobody. */
+export const RECEIPT_MODES = ['vortomi', 'own', 'off'] as const
+export type ReceiptMode = (typeof RECEIPT_MODES)[number]
+
+export const FULFILLMENTS = ['pickup', 'delivery'] as const
+export type Fulfillment = (typeof FULFILLMENTS)[number]
+
+/**
+ * Kinds of payment method a company offers (Ajustes → Métodos de pago). The kind sets the currency
+ * the customer pays in and the data suggested for it; the company writes the data itself.
+ */
+export const PAYMENT_METHOD_TYPES = ['pago_movil', 'transfer_national', 'zelle', 'paypal', 'binance', 'transfer_international', 'cash_usd', 'cash_ves', 'cash_eur', 'arrange'] as const
+export type PaymentMethodType = (typeof PAYMENT_METHOD_TYPES)[number]
+
+/** What a datum of a payment method is, for its editor and its format check. */
+export const PAYMENT_FIELD_KINDS = ['text', 'bank', 'document', 'phone'] as const
+export type PaymentFieldKind = (typeof PAYMENT_FIELD_KINDS)[number]
+
+/** Whether the customer must send the payment reference or the receipt. */
+export const PAYMENT_PROOF_RULES = ['required', 'optional', 'none'] as const
+export type PaymentProofRule = (typeof PAYMENT_PROOF_RULES)[number]

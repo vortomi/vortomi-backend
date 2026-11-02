@@ -23,7 +23,7 @@ let channelId = ''
 
 const company = {
   name: 'Panadería Corteza',
-  industry: 'Panadería',
+  businessType: 'food',
   city: 'Valencia',
   plan: 'basic',
   legalName: 'Corteza, C.A.',

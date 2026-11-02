@@ -1,14 +1,13 @@
 // The panel's inbox over HTTP: who sees which conversation inside a company, and
 // what each person can change. The company boundary itself is covered by test/db.
 import { randomUUID } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { channelAccounts, conversations, tags } from '../../src/db/schema/index.ts'
+import { channelAccounts, tags } from '../../src/db/schema/index.ts'
 import { IngestService } from '../../src/modules/conversations/ingest.service.ts'
 import { withTenant } from '../../src/modules/tenancy/tenant-scope.ts'
 import type { InboundMessageEvent } from '../../src/modules/whatsapp/events.ts'
-import { bearer, seedMembership, seedUser } from '../helpers/auth.ts'
+import { bearer, seedAssignees, seedMembership, seedUser } from '../helpers/auth.ts'
 import { buildTestApp } from '../helpers/app.ts'
 import { createTestDatabase, type TestDatabase } from '../helpers/test-db.ts'
 import { type SeededTenant, seedTwoTenants } from '../helpers/tenants.ts'
@@ -29,8 +28,6 @@ function inbound(phoneNumberId: string, from: string, body: string, waMessageId 
 }
 const receive = (tenant: SeededTenant, channelAccountId: string, event: InboundMessageEvent) =>
   withTenant(t.db, tenant.tenantId, (scope) => ingest.recordInbound(scope, channelAccountId, event))
-const assignDirectly = (tenantId: string, conversationId: string, userId: string) =>
-  withTenant(t.db, tenantId, ({ tx }) => tx.update(conversations).set({ assignedUserId: userId }).where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId))))
 
 beforeAll(async () => {
   t = await createTestDatabase()
@@ -50,14 +47,15 @@ beforeAll(async () => {
   await seedMembership(t.db, a.tenantId, who.andrea, { canSeeOthers: true, channelAccountIds: [workshopId] })
   await seedMembership(t.db, b.tenantId, who.pedro, { role: 'admin', channelAccountIds: [b.channelAccountId] })
 
-  // c1: sales number, unassigned, two messages. c2: sales, assigned to Laura. c3: workshop, Andrea's.
+  // c1: sales, Carlos's, two messages. c2: sales, Laura's. c3: workshop, Andrea's.
   chats.c1 = (await receive(a, a.channelAccountId, inbound(a.phoneNumberId, '584120000001', 'Hola'))).conversationId
   await receive(a, a.channelAccountId, inbound(a.phoneNumberId, '584120000001', '¿Tienen pastillas de freno?'))
   chats.c2 = (await receive(a, a.channelAccountId, inbound(a.phoneNumberId, '584120000002', 'Buenas'))).conversationId
   chats.c3 = (await receive(a, workshopId, inbound('100000000000003', '584120000003', 'Cita para el carro'))).conversationId
   chats.cb = (await receive(b, b.channelAccountId, inbound(b.phoneNumberId, '584120000009', 'Mensaje de la empresa B'))).conversationId
-  await assignDirectly(a.tenantId, chats.c2, who.laura)
-  await assignDirectly(a.tenantId, chats.c3, who.andrea)
+  await seedAssignees(t.db, a.tenantId, chats.c1, who.carlos)
+  await seedAssignees(t.db, a.tenantId, chats.c2, who.laura)
+  await seedAssignees(t.db, a.tenantId, chats.c3, who.andrea)
 
   app = await buildTestApp(t.db)
 })
@@ -78,11 +76,9 @@ describe('who sees which conversation', () => {
     expect(ids(response.json())).toEqual([chats.c1, chats.c2, chats.c3].sort())
   })
 
-  it('an agent without "see others" only gets unassigned and own chats on their numbers', async () => {
+  it('an agent only gets the conversations assigned to them, on any number', async () => {
     expect(ids((await call(who.carlos, 'GET', '/conversations')).json())).toEqual([chats.c1])
-  })
-
-  it('an agent with "see others" gets everything on their numbers only', async () => {
+    // "See others" no longer opens anything: Andrea still only gets hers.
     expect(ids((await call(who.andrea, 'GET', '/conversations')).json())).toEqual([chats.c3])
   })
 
@@ -97,7 +93,7 @@ describe('who sees which conversation', () => {
 describe('reading a conversation', () => {
   it('shows the last message, the unread count and the 24 h window', async () => {
     const c1 = (await call(who.carlos, 'GET', `/conversations/${chats.c1}`)).json<Record<string, unknown>>()
-    expect(c1).toMatchObject({ unreadCount: 2, status: 'open', assignedUserId: null, channelAccountId: a.channelAccountId })
+    expect(c1).toMatchObject({ unreadCount: 2, status: 'open', assigneeIds: [who.carlos], channelAccountId: a.channelAccountId })
     expect(c1['lastMessage']).toMatchObject({ direction: 'in', body: '¿Tienen pastillas de freno?' })
     expect(c1['serviceWindowExpiresAt']).toEqual(expect.any(String))
   })
@@ -128,16 +124,27 @@ describe('reading a conversation', () => {
 })
 
 describe('assigning and resolving', () => {
-  it('only to someone of this company who attends that number', async () => {
-    const toAndrea = await call(who.carlos, 'PUT', `/conversations/${chats.c1}/assignee`, { userId: who.andrea })
-    expect(toAndrea.json()).toEqual({ error: 'assignee_cannot_attend' })
-    const toPedro = await call(who.carlos, 'PUT', `/conversations/${chats.c1}/assignee`, { userId: who.pedro })
-    expect(toPedro.json()).toEqual({ error: 'assignee_cannot_attend' })
+  it('only admins hand conversations out', async () => {
+    expect((await call(who.carlos, 'PUT', `/conversations/${chats.c1}/assignees`, { userIds: [who.laura] })).json()).toEqual({ error: 'admin_required' })
+    expect((await call(who.andrea, 'PUT', `/conversations/${chats.c3}/assignees`, { userIds: [] })).json()).toEqual({ error: 'admin_required' })
   })
 
-  it('an agent takes a conversation and finds it in "mine"', async () => {
-    expect((await call(who.carlos, 'PUT', `/conversations/${chats.c1}/assignee`, { userId: who.carlos })).statusCode).toBe(204)
+  it('several people may attend one conversation, whatever the number; never someone of another company', async () => {
+    const assign = (userIds: string[]) => call(who.laura, 'PUT', `/conversations/${chats.c1}/assignees`, { userIds })
+    expect((await assign([who.carlos, who.andrea])).statusCode).toBe(204)
+    expect((await call(who.laura, 'GET', `/conversations/${chats.c1}`)).json()).toMatchObject({ assigneeIds: [who.carlos, who.andrea] })
+    expect(ids((await call(who.andrea, 'GET', '/conversations')).json())).toEqual([chats.c1, chats.c3].sort())
+    expect((await assign([who.pedro])).json()).toEqual({ error: 'assignee_cannot_attend' })
+    // Taking Andrea off: she no longer sees it, Carlos keeps it.
+    expect((await assign([who.carlos])).statusCode).toBe(204)
+    expect(ids((await call(who.andrea, 'GET', '/conversations')).json())).toEqual([chats.c3])
+  })
+
+  it('an agent finds their conversations in "mine"; unassigned ones are only for admins', async () => {
     expect(ids((await call(who.carlos, 'GET', '/conversations?view=mine')).json())).toEqual([chats.c1])
+    expect((await call(who.laura, 'PUT', `/conversations/${chats.c2}/assignees`, { userIds: [] })).statusCode).toBe(204)
+    expect(ids((await call(who.laura, 'GET', '/conversations?view=unassigned')).json())).toEqual([chats.c2])
+    expect(ids((await call(who.carlos, 'GET', '/conversations?view=unassigned')).json())).toEqual([])
   })
 
   it('a resolved conversation leaves the working views and comes back with a new message', async () => {
@@ -172,7 +179,7 @@ describe('internal notes', () => {
 describe('contacts and tags', () => {
   let contactId: string
 
-  it('lists only contacts of the numbers the agent attends', async () => {
+  it('an agent lists only the customers of their conversations', async () => {
     const { items } = (await call(who.andrea, 'GET', '/contacts')).json<{ items: { waId: string; id: string }[] }>()
     expect(items.map((c) => c.waId)).toEqual(['584120000003'])
     contactId = (await call(who.laura, 'GET', '/contacts?search=000001')).json<{ items: { id: string }[] }>().items[0]!.id

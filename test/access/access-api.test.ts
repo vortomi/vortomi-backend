@@ -70,7 +70,7 @@ describe('signing in', () => {
 })
 
 describe('entering a company', () => {
-  it('returns the caller role and numbers in their own company', async () => {
+  it('returns the caller role in their own company', async () => {
     const response = await get(`/api/tenants/${a.tenantId}/me`, people.carlos)
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({
@@ -78,7 +78,6 @@ describe('entering a company', () => {
       userId: people.carlos,
       role: 'agent',
       canSeeOthers: false,
-      channelAccountIds: [a.channelAccountId],
     })
   })
 
@@ -120,7 +119,7 @@ describe('platform console', () => {
     expect(tenants.map((tenant) => tenant['name'])).toEqual(['Empresa A', 'Empresa B'])
     // Company data, numbers and a head count: nothing of conversations, contacts or messages.
     expect(Object.keys(tenants[0]!).sort()).toEqual([
-      'channels', 'city', 'createdAt', 'fiscalAddress', 'id', 'industry', 'legalName', 'memberCount', 'name', 'plan', 'slug', 'status', 'taxId', 'timezone',
+      'businessType', 'businessTypeOther', 'channels', 'city', 'createdAt', 'fiscalAddress', 'id', 'legalName', 'memberCount', 'name', 'plan', 'slug', 'status', 'taxId', 'timezone',
     ])
   })
 })

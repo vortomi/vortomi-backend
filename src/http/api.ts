@@ -6,6 +6,9 @@ import type { AccessTokenVerifier } from '../modules/access/identity.ts'
 import type { ChannelCredentials } from '../modules/channels/channel-credentials.ts'
 import { ContactService } from '../modules/contacts/contact-service.ts'
 import { CustomFieldService } from '../modules/custom-fields/custom-field-service.ts'
+import { BusinessTypeService } from '../modules/setup/business-type-service.ts'
+import { SetupService } from '../modules/setup/setup-service.ts'
+import { businessTypeRoutes, setupRoutes } from '../modules/setup/setup.routes.ts'
 import { customFieldRoutes } from '../modules/custom-fields/custom-fields.routes.ts'
 import { contactRoutes } from '../modules/contacts/contacts.routes.ts'
 import { TagService } from '../modules/contacts/tag-service.ts'
@@ -31,6 +34,7 @@ import { SettingsService } from '../modules/workspace/settings-service.ts'
 import { workspaceRoutes } from '../modules/workspace/workspace.routes.ts'
 import { TemplateService } from '../modules/templates/template-service.ts'
 import { templateRoutes } from '../modules/templates/templates.routes.ts'
+import type { CatalogSources } from '../modules/catalog-source/catalog-sources.ts'
 import type { BcvRateService } from '../modules/exchange-rates/bcv-rate.service.ts'
 import { ExchangeRateService } from '../modules/exchange-rates/exchange-rate-service.ts'
 import { exchangeRateRoutes } from '../modules/exchange-rates/exchange-rates.routes.ts'
@@ -39,6 +43,19 @@ import { realtimeRoutes } from '../modules/realtime/realtime.routes.ts'
 import { ReportService } from '../modules/reports/report-service.ts'
 import { reportsRoutes } from '../modules/reports/reports.routes.ts'
 import type { TemplateRegistry, WabaDirectory, WhatsAppSender } from '../modules/whatsapp/cloud-api.client.ts'
+import { AgentSettingsService } from '../modules/agent/agent-settings-service.ts'
+import { agentRoutes } from '../modules/agent/agent.routes.ts'
+import { DeliveryService } from '../modules/delivery/delivery-service.ts'
+import { deliveryRoutes } from '../modules/delivery/delivery.routes.ts'
+import { BotDelivery } from '../modules/messaging/bot-delivery.ts'
+import { OrderConfirmation } from '../modules/orders/order-confirmation.ts'
+import { OrderService } from '../modules/orders/order-service.ts'
+import { PaymentMethodService } from '../modules/payment-methods/payment-method-service.ts'
+import { paymentMethodRoutes } from '../modules/payment-methods/payment-methods.routes.ts'
+import { orderRoutes } from '../modules/orders/orders.routes.ts'
+import { ReceiptSettingsService } from '../modules/sale-receipts/receipt-settings-service.ts'
+import { SaleReceiptService } from '../modules/sale-receipts/sale-receipt-service.ts'
+import { saleReceiptRoutes } from '../modules/sale-receipts/sale-receipts.routes.ts'
 import { authenticate } from './authenticate.ts'
 import { toApiError } from './domain-errors.ts'
 import { installErrorHandler } from './errors.ts'
@@ -52,6 +69,8 @@ export interface ApiOptions {
   wabaDirectory: WabaDirectory
   feed: InboxFeed
   bcv: Pick<BcvRateService, 'refresh'>
+  catalogs?: Pick<CatalogSources, 'systemRate'>
+  agent: { modelReady: boolean; monthlyCap: number }
 }
 
 const COMPANY = '/tenants/:tenantId'
@@ -69,7 +88,7 @@ export const publicApiRoutes: FastifyPluginAsync<{ db: Database }> = async (app,
  * The panel's API (/api). Everything in here requires a verified Supabase session;
  * company data is only reached through inCompany() (membership + withTenant).
  */
-export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv }) => {
+export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent }) => {
   installErrorHandler(app, toApiError)
   app.decorateRequest('identity', null)
   app.addHook('onRequest', authenticate(verifier))
@@ -81,7 +100,9 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   const usage = new UsageService()
   const invitations = new InvitationService(db)
   const tenantAdmin = new TenantAdminService(db, invitations, credentials, wabaDirectory)
-  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage })
+  const businessTypes = new BusinessTypeService(db)
+  await app.register(businessTypeRoutes, { types: businessTypes })
+  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage, types: businessTypes })
   await app.register(usageRoutes, { prefix: COMPANY, db, usage })
   await app.register(conversationRoutes, {
     prefix: `${COMPANY}/conversations`,
@@ -92,6 +113,7 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   })
   const customFields = new CustomFieldService()
   await app.register(customFieldRoutes, { prefix: COMPANY, db, fields: customFields })
+  await app.register(setupRoutes, { prefix: COMPANY, db, setup: new SetupService(customFields) })
   const contactService = new ContactService(customFields)
   await app.register(contactRoutes, { prefix: COMPANY, db, contacts: contactService, tags: new TagService() })
   await app.register(templateRoutes, { prefix: COMPANY, db, templates: new TemplateService(db, credentials, templateRegistry) })
@@ -100,9 +122,19 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   await app.register(inventoryRoutes, { prefix: COMPANY, db, inventory: new InventoryService(categories, variantTypes, customFields), categories, variantTypes })
   await app.register(realtimeRoutes, { prefix: COMPANY, db, feed })
   await app.register(reportsRoutes, { prefix: COMPANY, db, reports: new ReportService() })
-  await app.register(exchangeRateRoutes, { prefix: COMPANY, db, rates: new ExchangeRateService(), bcv })
+  await app.register(exchangeRateRoutes, { prefix: COMPANY, db, rates: new ExchangeRateService(), bcv, ...(catalogs ? { catalogs } : {}) })
   await app.register(teamRoutes, { prefix: COMPANY, db, team: new TeamService(), invitations })
   await app.register(invitationRoutes, { invitations })
+  await app.register(agentRoutes, { prefix: COMPANY, db, settings: new AgentSettingsService(agent.modelReady, agent.monthlyCap) })
+  await app.register(deliveryRoutes, { prefix: COMPANY, db, delivery: new DeliveryService() })
+  await app.register(paymentMethodRoutes, { prefix: COMPANY, db, methods: new PaymentMethodService() })
+  const orders = new OrderService()
+  const botDelivery = new BotDelivery(db, credentials, sender)
+  const confirmation = new OrderConfirmation(orders, botDelivery)
+  const receiptSettings = new ReceiptSettingsService()
+  const saleReceipts = new SaleReceiptService(orders, receiptSettings, botDelivery)
+  await app.register(orderRoutes, { prefix: COMPANY, db, orders, confirmation, saleReceipts })
+  await app.register(saleReceiptRoutes, { prefix: COMPANY, db, settings: receiptSettings, receipts: saleReceipts })
   await app.register(workspaceRoutes, {
     prefix: COMPANY,
     db,

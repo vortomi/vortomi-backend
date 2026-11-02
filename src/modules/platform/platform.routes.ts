@@ -5,6 +5,7 @@ import { identityOf } from '../../http/authenticate.ts'
 import { forbidden } from '../../http/errors.ts'
 import { parseInput } from '../../http/validation.ts'
 import type { AccessDirectory } from '../access/access-directory.ts'
+import { type BusinessTypeService, newTypeInput, reclassifyInput } from '../setup/business-type-service.ts'
 import { type UsageService, monthParam } from '../usage/usage-service.ts'
 import { type TenantAdminService, adminInvitationInput, channelInput, lookupInput, tenantInput, tenantStatusInput } from './tenant-admin-service.ts'
 
@@ -13,6 +14,7 @@ export interface PlatformRoutesOptions {
   tenants: TenantAdminService
   db: Database
   usage: UsageService
+  types: BusinessTypeService
 }
 
 const tenantParams = z.object({ tenantId: z.uuid() })
@@ -24,7 +26,7 @@ const sinceQuery = z.object({ since: z.iso.datetime({ offset: true }) })
  * session signed in with the second factor (documentations/04, D12): this console
  * reaches every company, so a stolen password alone must not open it.
  */
-export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage }, done) => {
+export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types }, done) => {
   app.addHook('preHandler', async (request) => {
     const identity = identityOf(request)
     const account = await directory.findAccount(identity.userId)
@@ -35,6 +37,17 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
   const id = (params: unknown) => parseInput(tenantParams, params).tenantId
 
   app.get('/tenants', async () => ({ tenants: await tenants.list() }))
+
+  // What companies wrote under «Otro», and turning it into types of the list.
+  app.get('/business-types/unclassified', async () => ({ items: await types.unclassified() }))
+  app.post('/business-types', async (request, reply) => {
+    const { label, tenantIds } = parseInput(newTypeInput, request.body)
+    return reply.code(201).send(await types.create(label, tenantIds))
+  })
+  app.post('/business-types/reclassify', (request) => {
+    const { businessType, tenantIds } = parseInput(reclassifyInput, request.body)
+    return types.reclassify(businessType, tenantIds)
+  })
   app.post('/tenants', async (request, reply) => reply.code(201).send(await tenants.create(parseInput(tenantInput, request.body))))
   app.get('/tenants/:tenantId', (request) => tenants.detail(id(request.params)))
   app.put('/tenants/:tenantId', (request) => tenants.update(id(request.params), parseInput(tenantInput, request.body)))

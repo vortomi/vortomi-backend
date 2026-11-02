@@ -4,6 +4,7 @@ import type { Database } from './db/client.ts'
 import { apiRoutes, publicApiRoutes } from './http/api.ts'
 import type { AccessTokenVerifier } from './modules/access/identity.ts'
 import type { ChannelCredentials } from './modules/channels/channel-credentials.ts'
+import type { CatalogSources } from './modules/catalog-source/catalog-sources.ts'
 import type { BcvRateService } from './modules/exchange-rates/bcv-rate.service.ts'
 import type { InboxFeed } from './modules/realtime/inbox-feed.ts'
 import type { TemplateRegistry, WabaDirectory, WhatsAppSender } from './modules/whatsapp/cloud-api.client.ts'
@@ -23,6 +24,10 @@ export interface AppDependencies {
   feed: InboxFeed
   /** Reads the BCV for the companies that chose its rate. */
   bcv: Pick<BcvRateService, 'refresh'>
+  /** Companies whose catalog lives in their own system (their rate, on the exchange-rate card). */
+  catalogs?: Pick<CatalogSources, 'systemRate'>
+  /** Whether the sales agent has a model, and its monthly cap per company (defaults: none, 1000). */
+  agent?: { modelReady: boolean; monthlyCap: number }
 }
 
 /** Secrets and signatures must never reach the logs. */
@@ -76,6 +81,8 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     wabaDirectory: deps.wabaDirectory,
     feed: deps.feed,
     bcv: deps.bcv,
+    ...(deps.catalogs ? { catalogs: deps.catalogs } : {}),
+    agent: deps.agent ?? { modelReady: false, monthlyCap: 1000 },
   })
 
   return app

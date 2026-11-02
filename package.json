@@ -23,9 +23,13 @@
     "member:add": "tsx scripts/add-member.ts",
     "channel:set-token": "tsx scripts/set-channel-token.ts",
     "meta:simulate": "tsx scripts/simulate-webhook.ts",
+    "meta:webhook": "tsx scripts/sync-webhook-url.ts",
+    "catalog:connect": "tsx scripts/connect-catalog.ts",
     "db:seed-sample": "tsx scripts/seed-sample-data.ts"
   },
   "dependencies": {
+    "@expo-google-fonts/roboto-mono": "^0.4.2",
+    "@resvg/resvg-js": "^2.6.2",
     "drizzle-orm": "0.45.3",
     "fastify": "5.12.5",
     "jose": "6.2.12",

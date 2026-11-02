@@ -1,12 +1,13 @@
 import { and, asc, desc, eq, isNotNull, or, sql } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { z } from 'zod'
-import { DECIMAL_SALE_UNITS, SALE_UNITS, STOCK_MODES, STOCK_MOVEMENT_KINDS, type SaleUnit, type StockMovementKind } from '../../db/schema/enums.ts'
+import { SALE_UNITS, STOCK_MODES, STOCK_MOVEMENT_KINDS, type SaleUnit, type StockMovementKind } from '../../db/schema/enums.ts'
 import { productCategories, productVariants, products, stockMovements } from '../../db/schema/index.ts'
 import type { MemberScope } from '../access/member-scope.ts'
 import type { CustomFieldService } from '../custom-fields/custom-field-service.ts'
 import { checkValues, customValuesInput } from '../custom-fields/custom-values.ts'
 import type { CategoryService } from './category-service.ts'
+import { MIN_QUANTITIES, QUANTITY_STEPS, fitsRule, fitsUnit, hasAtMostTwoDecimals, takesDecimals } from './sale-quantity.ts'
 import type { VariantTypeService } from './variant-type-service.ts'
 
 export class InventoryNotFoundError extends Error {
@@ -55,31 +56,14 @@ export class FractionalStockError extends Error {
   }
 }
 
-/** The choices the panel offers for "Venta mínima" and "De cuánto en cuánto" (closed lists). */
-export const MIN_QUANTITIES = [0.1, 0.25, 0.5, 1, 2, 3, 5, 6, 10, 12] as const
-export const QUANTITY_STEPS = [0.1, 0.25, 0.5, 1] as const
-
 const MAX_TYPES = 3
 const money = z.number().int().min(0).max(2_000_000_000)
-// Up to 3 decimals; whether fractions are allowed depends on the product's unit (fitsUnit).
+// Up to 2 decimals; whether fractions are allowed depends on the product's unit (fitsUnit).
 const amount = z
   .number()
   .min(0)
   .max(1_000_000_000)
-  .refine((value) => hasAtMostThreeDecimals(value), 'at most 3 decimals')
-
-function hasAtMostThreeDecimals(value: number): boolean {
-  return Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-6
-}
-
-export function takesDecimals(unit: SaleUnit): boolean {
-  return DECIMAL_SALE_UNITS.includes(unit)
-}
-
-/** A quantity in the product's unit: whole for pieces, up to 3 decimals for kilos, metres... */
-function fitsUnit(value: number, unit: SaleUnit): boolean {
-  return takesDecimals(unit) ? hasAtMostThreeDecimals(value) : Number.isInteger(value)
-}
+  .refine((value) => hasAtMostTwoDecimals(value), 'at most 2 decimals')
 
 export const variantInput = z.object({
   // One value per type of the product, in its order; the name comes from them ("M / Rojo").
@@ -123,11 +107,8 @@ const productFields = z.object({
 type SaleFields = Pick<z.infer<typeof productFields>, 'saleUnit' | 'minQuantity' | 'quantityStep'>
 
 /** Whole units sell one at a time from a whole minimum; the rest from a minimum that is a whole number of steps. */
-function checkSaleQuantities({ saleUnit, minQuantity, quantityStep }: SaleFields, ctx: z.RefinementCtx): void {
-  const fits = takesDecimals(saleUnit)
-    ? Math.abs(minQuantity / quantityStep - Math.round(minQuantity / quantityStep)) < 1e-9
-    : quantityStep === 1 && Number.isInteger(minQuantity)
-  if (!fits) ctx.addIssue({ code: 'custom', message: 'The minimum and the step do not fit the sale unit', path: ['minQuantity'] })
+function checkSaleQuantities(fields: SaleFields, ctx: z.RefinementCtx): void {
+  if (!fitsRule(fields)) ctx.addIssue({ code: 'custom', message: 'The minimum and the step do not fit the sale unit', path: ['minQuantity'] })
 }
 
 export const productInput = productFields.superRefine(checkSaleQuantities)
@@ -152,7 +133,7 @@ export const movementInput = z.object({
     .number()
     .min(-1_000_000_000)
     .max(1_000_000_000)
-    .refine((value) => value !== 0 && hasAtMostThreeDecimals(value)),
+    .refine((value) => value !== 0 && hasAtMostTwoDecimals(value)),
   reason: z.string().trim().max(200).default(''),
 })
 export type MovementInput = z.infer<typeof movementInput>

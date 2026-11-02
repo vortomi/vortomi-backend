@@ -28,7 +28,7 @@ describe('sample data', () => {
 
   it('keeps the unread counts and the stock the prototype shows', async () => {
     const jose = await withMember(t.db, sampleUuid('ten_ra'), sampleUuid('usr_laura'), (scope) => new ConversationQueries().get(scope, sampleUuid('cnv_jose')))
-    expect(jose).toMatchObject({ unreadCount: 0, assignedUserId: sampleUuid('usr_carlos') })
+    expect(jose).toMatchObject({ unreadCount: 0, assigneeIds: [sampleUuid('usr_carlos')] })
     const [bosch] = await t.db.select().from(productVariants).where(eq(productVariants.id, sampleUuid('var_brake_bosch')))
     expect(bosch).toMatchObject({ onHand: 6, reserved: 1 })
   })
