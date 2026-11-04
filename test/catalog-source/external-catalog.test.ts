@@ -87,6 +87,19 @@ describe('the catalog in memory', () => {
     expect(await cache.get('t', read(api))).toBeNull()
   })
 
+  it('tells each failed read, with the reason and never the key', async () => {
+    const failures: { key: string; message: string }[] = []
+    const cache = new CatalogCache({ ttlMs: 90_000, staleMaxMs: 600_000, minRemaining: 10, onError: (key, e) => failures.push({ key, message: (e as Error).message }) })
+    const refused = (() => Promise.reject(new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } }))) as unknown as typeof fetch
+    expect(await cache.get('t', () => readLaCampinaCatalog(BASE, KEY, refused))).toBeNull()
+    await cache.get('u', read(fakeApi([() => new Response('blocked', { status: 403 })])))
+    expect(failures).toEqual([
+      { key: 't', message: 'Catalog source unreachable (TypeError ECONNREFUSED)' },
+      { key: 'u', message: 'Catalog source answered 403' },
+    ])
+    expect(JSON.stringify(failures)).not.toContain(KEY)
+  })
+
   it('stops asking when its per-minute budget runs low or it asks us to wait', async () => {
     let now = 0
     const cache = new CatalogCache({ ttlMs: 1_000, staleMaxMs: 600_000, minRemaining: 10, now: () => now })

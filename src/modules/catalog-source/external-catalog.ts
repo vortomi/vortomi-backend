@@ -34,6 +34,8 @@ export interface CatalogCacheOptions {
   staleMaxMs: number
   /** Below this many requests left in the system's minute, stop refreshing until the next one. */
   minRemaining: number
+  /** Told each failed read (the key is never part of the error): a silent failure looks like a quiet bot. */
+  onError?: (key: string, error: unknown) => void
   now?: () => number
 }
 
@@ -65,7 +67,7 @@ export class CatalogCache {
     const now = this.now()
     if (!entry.catalog || now - entry.fetchedAt >= this.options.ttlMs) {
       if (now >= entry.pausedUntil) {
-        entry.inFlight ??= this.refresh(entry, read).finally(() => {
+        entry.inFlight ??= this.refresh(key, entry, read).finally(() => {
           entry.inFlight = null
         })
         await entry.inFlight
@@ -74,13 +76,14 @@ export class CatalogCache {
     return this.usable(entry)
   }
 
-  private async refresh(entry: Entry, read: () => Promise<CatalogRead>): Promise<void> {
+  private async refresh(key: string, entry: Entry, read: () => Promise<CatalogRead>): Promise<void> {
     try {
       const { catalog, remaining } = await read()
       entry.catalog = catalog
       entry.fetchedAt = this.now()
       if (remaining !== null && remaining < this.options.minRemaining) entry.pausedUntil = nextMinute(this.now())
     } catch (error) {
+      this.options.onError?.(key, error)
       if (error instanceof CatalogSourceError && error.status === 429) {
         entry.pausedUntil = this.now() + (error.retryAfterSeconds ?? 60) * 1000
       }

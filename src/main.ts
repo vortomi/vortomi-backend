@@ -18,6 +18,7 @@ import { GeminiModel } from './modules/agent/gemini-model.ts'
 import { SalesAgent } from './modules/agent/sales-agent.ts'
 import { CatalogSources } from './modules/catalog-source/catalog-sources.ts'
 import { CatalogCache } from './modules/catalog-source/external-catalog.ts'
+import { CatalogSourceError } from './modules/catalog-source/lacampina-client.ts'
 import { AutoResponder } from './modules/messaging/auto-responder.ts'
 import { ReceiptCollector } from './modules/orders/receipt-collector.ts'
 import { AwayReplyService } from './modules/messaging/away-reply.ts'
@@ -61,7 +62,17 @@ async function main(): Promise<void> {
   const bcvLog = { warn: (message: string) => app.log.warn(message), error: (obj: object, message: string) => app.log.error(obj, message) }
   const bcv = new BcvRateService(db, new HttpBcvSource(bcvLog), bcvLog)
   // Companies whose catalog lives in their own system: read live, at most once per 90 s each.
-  const catalogs = new CatalogSources(db, cipher, new CatalogCache({ ttlMs: 90_000, staleMaxMs: 600_000, minRemaining: 10 }))
+  const catalogs = new CatalogSources(
+    db,
+    cipher,
+    new CatalogCache({
+      ttlMs: 90_000,
+      staleMaxMs: 600_000,
+      minRemaining: 10,
+      onError: (tenantId, error) =>
+        app.log.warn({ tenantId, reason: error instanceof CatalogSourceError ? error.message : error instanceof Error ? error.name : 'unknown' }, 'Company catalog could not be read'),
+    }),
+  )
 
   // The app is built first so the processing pipeline can share its logger.
   // The webhook callback only runs after listen(), when `inbox` exists.

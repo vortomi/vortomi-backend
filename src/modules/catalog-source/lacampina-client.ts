@@ -53,7 +53,7 @@ export async function readLaCampinaCatalog(baseUrl: string, apiKey: string, fetc
         signal: AbortSignal.timeout(TIMEOUT_MS),
       })
     } catch (error) {
-      throw new CatalogSourceError(`Catalog source unreachable (${error instanceof Error ? error.name : 'unknown'})`, null)
+      throw new CatalogSourceError(`Catalog source unreachable (${failureName(error)})`, null)
     }
     const remaining = numberHeader(response, 'x-ratelimit-remaining')
     if (response.status === 503 && attempt < RETRY_WAITS_MS.length) {
@@ -67,6 +67,13 @@ export async function readLaCampinaCatalog(baseUrl: string, apiKey: string, fetc
     if (!parsed.success) throw new CatalogSourceError('Catalog source answered an unexpected shape', response.status)
     return { catalog: toCatalog(parsed.data), remaining }
   }
+}
+
+/** Timeout, refused, unknown host...: the network's own code, which says where it broke. */
+function failureName(error: unknown): string {
+  if (!(error instanceof Error)) return 'unknown'
+  const code = (error.cause as { code?: unknown } | undefined)?.code
+  return typeof code === 'string' ? `${error.name} ${code}` : error.name
 }
 
 function toCatalog(data: z.infer<typeof productsResponse>): ExternalCatalog {
