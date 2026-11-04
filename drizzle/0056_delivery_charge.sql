@@ -1,0 +1,2 @@
+ALTER TABLE "delivery_settings" ADD COLUMN "charge" text DEFAULT 'per_order' NOT NULL;--> statement-breakpoint
+ALTER TABLE "delivery_settings" ADD CONSTRAINT "delivery_settings_charge_check" CHECK ("delivery_settings"."charge" in ('per_order', 'per_piece'));

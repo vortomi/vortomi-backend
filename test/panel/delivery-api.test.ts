@@ -37,7 +37,7 @@ const byZone = { enabled: true, mode: 'zones', flatPriceCents: 0, zones: [{ name
 
 describe('delivery settings', () => {
   it('starts not configured', async () => {
-    expect((await call(who.laura, 'GET')).json()).toEqual({ configured: false, enabled: false, mode: 'zones', flatPriceCents: 0, zones: [] })
+    expect((await call(who.laura, 'GET')).json()).toEqual({ configured: false, enabled: false, mode: 'zones', flatPriceCents: 0, charge: 'per_order', zones: [] })
   })
 
   it('an admin sets prices by zone for their company only; anyone in it reads them', async () => {
@@ -50,11 +50,18 @@ describe('delivery settings', () => {
     expect((await call(who.carlos, 'PUT', byZone)).json()).toEqual({ error: 'admin_required' })
     expect((await call(who.laura, 'PUT', { ...byZone, zones: [{ name: 'Centro', priceCents: 1 }, { name: 'centro', priceCents: 2 }] })).statusCode).toBe(400)
     expect((await call(who.laura, 'PUT', { ...byZone, flatPriceCents: 1.5 })).statusCode).toBe(400)
+    expect((await call(who.laura, 'PUT', { ...byZone, charge: 'per_trip' })).statusCode).toBe(400)
+  })
+
+  it('charged per order unless the company says per piece', async () => {
+    expect((await call(who.laura, 'PUT', byZone)).json()).toMatchObject({ charge: 'per_order' })
+    expect((await call(who.laura, 'PUT', { ...byZone, charge: 'per_piece' })).json()).toMatchObject({ charge: 'per_piece' })
+    expect((await call(who.carlos, 'GET')).json()).toMatchObject({ charge: 'per_piece' })
   })
 })
 
 describe('what the agent says about delivery', () => {
-  const base = { configured: true, enabled: true, mode: 'zones' as const, flatPriceCents: 0, zones: [] }
+  const base = { configured: true, enabled: true, mode: 'zones' as const, flatPriceCents: 0, charge: 'per_order' as const, zones: [] }
   it('nothing set: a person confirms; off: pickup only', () => {
     expect(deliveryText(undefined, null)).toContain('a person confirms')
     expect(deliveryText({ ...base, enabled: false }, null)).toContain('does not deliver')
@@ -65,5 +72,11 @@ describe('what the agent says about delivery', () => {
     const zones = deliveryText({ ...base, zones: [{ name: 'Centro', priceCents: 100 }] }, '888.12')
     expect(zones).toContain('Centro $1.00 (888.12 Bs)')
     expect(zones).toContain('Zones not listed')
+    expect(zones).toContain('once per order')
+  })
+
+  it('per piece: the agent knows the price repeats for every piece', () => {
+    expect(deliveryText({ ...base, charge: 'per_piece', zones: [{ name: 'Centro', priceCents: 60 }] }, null)).toContain('charged per piece ordered')
+    expect(deliveryText({ ...base, mode: 'flat', flatPriceCents: 60, charge: 'per_piece' }, null)).toContain('$0.60 per piece to any address')
   })
 })

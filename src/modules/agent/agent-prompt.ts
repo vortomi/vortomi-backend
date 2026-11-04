@@ -149,10 +149,15 @@ export function deliveryText(delivery: DeliveryView | undefined, bsPerUsd: strin
     const usd = cents / 100
     return `$${usd.toFixed(2)}${bsPerUsd ? ` (${(usd * Number(bsPerUsd)).toFixed(2)} Bs)` : ''}`
   }
-  if (delivery.mode === 'flat') return `Delivery: available, ${price(delivery.flatPriceCents)} to any address, on top of the order.`
+  // Per piece: the price repeats for every piece (3 jugs pay it 3 times); quote_order adds it up.
+  const perPiece = delivery.charge === 'per_piece'
+  const charged = perPiece
+    ? 'charged per piece ordered: each piece pays it once (3 jugs, 3 times) and each product sold by weight or measure pays it once; quote_order adds it up'
+    : 'once per order'
+  if (delivery.mode === 'flat') return `Delivery: available, ${price(delivery.flatPriceCents)} ${perPiece ? 'per piece ' : ''}to any address, on top of the order, ${charged}.`
   if (!delivery.zones.length) return 'Delivery: available; the cost depends on the zone and a person confirms it.'
   const zones = delivery.zones.map((z) => `${z.name} ${price(z.priceCents)}`).join('; ')
-  return `Delivery: available, on top of the order, priced by zone: ${zones}. Ask which zone if you need it. Zones not listed: a person confirms whether and at what cost.`
+  return `Delivery: available, on top of the order, priced by zone (${charged}): ${zones}. Ask which zone if you need it. Zones not listed: a person confirms whether and at what cost.`
 }
 
 const UNIT: Record<SaleUnit, string> = {

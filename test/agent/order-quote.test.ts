@@ -16,7 +16,7 @@ const catalog: AgentCatalog = {
   search: () => Promise.resolve({ products: [] }),
   resolve: (name) => Promise.resolve(ITEMS.find((i) => i.name === name) ?? null),
 }
-const terms = { delivery: { configured: true, enabled: false, mode: 'flat' as const, flatPriceCents: 0, zones: [] }, paymentMethods: [] }
+const terms = { delivery: { configured: true, enabled: false, mode: 'flat' as const, flatPriceCents: 0, charge: 'per_order' as const, zones: [] }, paymentMethods: [] }
 const order = (items: OrderRequest['items']): OrderRequest => ({ customerName: 'Ana', items, fulfillment: 'pickup' })
 
 describe('quantities with decimals', () => {
@@ -40,5 +40,27 @@ describe('quantities with decimals', () => {
     expect(lineCents({ quantity: 1.25, unitPriceCents: 340 })).toBe(425)
     expect(lineCents({ quantity: 0.1, unitPriceCents: 333 })).toBe(33)
     expect(lineCents({ quantity: 3, unitPriceCents: 90 })).toBe(270)
+  })
+})
+
+describe('delivery charged per piece', () => {
+  const zones = { configured: true, enabled: true, mode: 'zones' as const, flatPriceCents: 0, zones: [{ name: 'La Campiña', priceCents: 60 }] }
+  const jug: CatalogItem = { ref: 'j1', name: 'Recarga 19L', unitPriceCents: 90, available: true, rule: UNIT_RULE }
+  const withJug: AgentCatalog = { ...catalog, resolve: (name) => Promise.resolve([...ITEMS, jug].find((i) => i.name === name) ?? null) }
+  const delivered = (items: OrderRequest['items']): OrderRequest => ({ ...order(items), fulfillment: 'delivery', zone: 'la campina', address: 'Calle 3, frente a la plaza' })
+
+  it('3 jugs at $0.90 with $0.60 per piece: $1.80 of delivery, $4.50 in all', async () => {
+    const quote = await quoteOrder(delivered([{ product: 'Recarga 19L', quantity: 3 }]), withJug, { delivery: { ...zones, charge: 'per_piece' }, paymentMethods: [] })
+    expect([quote.subtotalCents, quote.deliveryCents, quote.deliveryPieces]).toEqual([270, 180, 3])
+    expect(quote.subtotalCents + quote.deliveryCents!).toBe(450)
+  })
+
+  it('per order the same jugs pay one trip; weighed products count once; pickup pays nothing', async () => {
+    const perOrder = await quoteOrder(delivered([{ product: 'Recarga 19L', quantity: 3 }]), withJug, { delivery: { ...zones, charge: 'per_order' }, paymentMethods: [] })
+    expect([perOrder.deliveryCents, perOrder.deliveryPieces]).toEqual([60, null])
+    const mixed = await quoteOrder(delivered([{ product: 'Recarga 19L', quantity: 2 }, { product: 'Queso blanco', quantity: 0.5 }]), withJug, { delivery: { ...zones, charge: 'per_piece' }, paymentMethods: [] })
+    expect([mixed.deliveryCents, mixed.deliveryPieces]).toEqual([180, 3])
+    const pickup = await quoteOrder(order([{ product: 'Recarga 19L', quantity: 3 }]), withJug, { delivery: { ...zones, charge: 'per_piece' }, paymentMethods: [] })
+    expect([pickup.deliveryCents, pickup.deliveryPieces]).toEqual([0, null])
   })
 })

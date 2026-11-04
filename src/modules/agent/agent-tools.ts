@@ -55,7 +55,7 @@ function summary(quote: OrderQuote) {
         ? 'pickup at the store'
         : quote.deliveryCents === null
           ? 'delivery cost to be confirmed by a person'
-          : { usd: usd(quote.deliveryCents), bs: bs(quote.deliveryCents, rate) },
+          : { usd: usd(quote.deliveryCents), bs: bs(quote.deliveryCents, rate), ...(quote.deliveryPieces ? { charged: `${quote.deliveryPieces} × ${usd(quote.deliveryCents / quote.deliveryPieces)}, per piece` } : {}) },
     totalUsd: usd(quote.subtotalCents + known),
     totalBs: bs(quote.subtotalCents + known, rate),
     ...(quote.paymentMethod

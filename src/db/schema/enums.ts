@@ -91,6 +91,8 @@ export type StockMode = (typeof STOCK_MODES)[number]
 export const SALE_UNITS = ['unit', 'pair', 'dozen', 'box', 'pack', 'roll', 'kg', 'g', 'm', 'm2', 'l', 'hour', 'service', 'session'] as const
 export type SaleUnit = (typeof SALE_UNITS)[number]
 export const DECIMAL_SALE_UNITS: readonly SaleUnit[] = ['kg', 'm', 'm2', 'l', 'hour']
+/** Units counted one by one (3 boxes are 3); the rest (kilos, grams, visits...) count once per product. */
+export const PIECE_SALE_UNITS: readonly SaleUnit[] = ['unit', 'pair', 'dozen', 'box', 'pack', 'roll']
 
 /** What a company sells, as it answers the welcome (block C). none: it only attends customers. */
 export const SELLS = ['products', 'services', 'both', 'none'] as const
@@ -137,6 +139,10 @@ export type CatalogSourceKind = (typeof CATALOG_SOURCE_KINDS)[number]
 /** How a company charges delivery: one price everywhere, or a price per zone it names. */
 export const DELIVERY_MODES = ['flat', 'zones'] as const
 export type DeliveryMode = (typeof DELIVERY_MODES)[number]
+
+/** What that price is for: the whole order (one trip), or each piece ordered (3 jugs pay it 3 times). */
+export const DELIVERY_CHARGES = ['per_order', 'per_piece'] as const
+export type DeliveryCharge = (typeof DELIVERY_CHARGES)[number]
 
 /**
  * Where an order stands: waiting for the customer's payment, payment receipt to review, confirmed

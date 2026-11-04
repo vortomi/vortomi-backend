@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { boolean, check, integer, jsonb, pgTable, text, uniqueIndex, unique, uuid } from 'drizzle-orm/pg-core'
 import { createdAtColumn, oneOf, tenantIdColumn, timestamptz, uuidIdColumn } from './columns.ts'
-import { DELIVERY_MODES, RATE_SOURCES, SALE_UNITS, STOCK_MODES, WORK_MODES } from './enums.ts'
+import { DELIVERY_CHARGES, DELIVERY_MODES, RATE_SOURCES, SALE_UNITS, STOCK_MODES, WORK_MODES } from './enums.ts'
 import { tenants } from './tenancy.ts'
 
 // How each company works: settings, canned replies and its sales pipeline.
@@ -100,12 +100,14 @@ export const deliverySettings = pgTable(
     enabled: boolean('enabled').notNull().default(false),
     mode: text('mode', { enum: DELIVERY_MODES }).notNull().default('zones'),
     flatPriceCents: integer('flat_price_cents').notNull().default(0),
+    charge: text('charge', { enum: DELIVERY_CHARGES }).notNull().default('per_order'),
     // [{ name, priceCents }], names unique ignoring case (validated by the API).
     zones: jsonb('zones').$type<DeliveryZone[]>().notNull().default(sql`'[]'::jsonb`),
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   (t) => [
     check('delivery_settings_mode_check', oneOf(t.mode, DELIVERY_MODES)),
+    check('delivery_settings_charge_check', oneOf(t.charge, DELIVERY_CHARGES)),
     check('delivery_settings_flat_price_check', sql`${t.flatPriceCents} between 0 and 100000000`),
     check('delivery_settings_zones_check', sql`jsonb_typeof(${t.zones}) = 'array' and jsonb_array_length(${t.zones}) <= 100`),
   ],

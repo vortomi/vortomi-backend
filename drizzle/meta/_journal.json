@@ -393,6 +393,13 @@
       "when": 1793635133407,
       "tag": "0055_sale_receipts_security",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1793717809576,
+      "tag": "0056_delivery_charge",
+      "breakpoints": true
     }
   ]
 }

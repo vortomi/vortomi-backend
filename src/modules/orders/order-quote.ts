@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { FULFILLMENTS, type SaleUnit } from '../../db/schema/enums.ts'
+import { FULFILLMENTS, PIECE_SALE_UNITS, type SaleUnit } from '../../db/schema/enums.ts'
 import type { AgentCatalog } from '../agent/agent-catalog.ts'
 import { type SaleRule, canSell, hasAtMostTwoDecimals, takesDecimals } from '../inventory/sale-quantity.ts'
 import type { DeliveryView } from '../delivery/delivery-service.ts'
@@ -37,6 +37,8 @@ export interface OrderQuote {
   subtotalCents: number
   /** Null: delivery whose cost a person confirms. */
   deliveryCents: number | null
+  /** Charged per piece: how many times the delivery price went in (3 jugs: 3). Null otherwise. */
+  deliveryPieces: number | null
   bsPerUsd: string | null
   /** Null when the company has no payment methods yet (a person tells the customer how to pay). */
   paymentMethod: PaymentMethodView | null
@@ -69,11 +71,14 @@ export async function quoteOrder(request: OrderRequest, catalog: AgentCatalog, t
     if (!canSell(item.quantity, found.rule)) throw new OrderProblem(quantityProblem(found.name, found.rule))
     lines.push({ productRef: found.ref, name: found.name, quantity: item.quantity, saleUnit: found.rule.saleUnit, unitPriceCents: found.unitPriceCents })
   }
+  const price = deliveryPrice(request, terms.delivery)
+  const pieces = terms.delivery.charge === 'per_piece' && request.fulfillment === 'delivery' ? deliveryPieces(lines) : null
   return {
     request,
     lines,
     subtotalCents: lines.reduce((sum, l) => sum + lineCents(l), 0),
-    deliveryCents: deliveryCost(request, terms.delivery),
+    deliveryCents: price === null ? null : price * (pieces ?? 1),
+    deliveryPieces: pieces,
     bsPerUsd: catalog.bsPerUsd,
     paymentMethod: chosenMethod(request, terms.paymentMethods),
   }
@@ -85,7 +90,16 @@ function quantityProblem(name: string, rule: SaleRule): string {
   return `"${name}" is sold by ${rule.saleUnit}: at least ${rule.minQuantity}, in steps of ${rule.quantityStep}. Ask the customer for a quantity that fits.`
 }
 
-function deliveryCost(request: OrderRequest, delivery: DeliveryView): number | null {
+/**
+ * How many times a per-piece delivery is charged: pieces one by one (3 jugs: 3), and once each
+ * product sold by weight or measure (0,5 kg of cheese: 1), so half a kilo never pays half a trip.
+ */
+export function deliveryPieces(lines: Pick<PricedLine, 'quantity' | 'saleUnit'>[]): number {
+  return lines.reduce((sum, l) => sum + (PIECE_SALE_UNITS.includes(l.saleUnit) ? l.quantity : 1), 0)
+}
+
+/** The delivery price the settings give this order (per order or per piece); null: a person confirms it. */
+function deliveryPrice(request: OrderRequest, delivery: DeliveryView): number | null {
   if (request.fulfillment === 'pickup') return 0
   if (!request.address) throw new OrderProblem('Delivery needs the exact address with a reference point: ask the customer.')
   if (!delivery.configured) return null
