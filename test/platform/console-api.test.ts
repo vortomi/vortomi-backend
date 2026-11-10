@@ -5,9 +5,10 @@ import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { channelCredentials } from '../../src/db/schema/index.ts'
+import { channelAccounts, channelCredentials, conversations } from '../../src/db/schema/index.ts'
 import { IngestService } from '../../src/modules/conversations/ingest.service.ts'
 import { withTenant } from '../../src/modules/tenancy/tenant-scope.ts'
+import { ChannelDirectory } from '../../src/modules/tenancy/channel-directory.ts'
 import { FakeWabaDirectory, buildTestApp } from '../helpers/app.ts'
 import { bearer, seedMembership, seedUser } from '../helpers/auth.ts'
 import { createTestDatabase, type TestDatabase } from '../helpers/test-db.ts'
@@ -153,5 +154,39 @@ describe('signing up a company', () => {
     expect((await juanTeam()).json()).toEqual({ error: 'company_unavailable' })
     expect((await console_('PUT', `/tenants/${tenantId}/status`, { status: 'active' })).statusCode).toBe(204)
     expect((await juanTeam()).statusCode).toBe(200)
+  })
+})
+
+describe('correcting a connected number', () => {
+  it('lists the account numbers with the stored token, and refuses what Meta or the platform says no to', async () => {
+    waba.accounts.get('300000000000001')!.push({ phoneNumberId: '400000000000002', displayNumber: '+58 241-555-0102', verifiedName: 'Corteza', nameStatus: 'APPROVED' })
+    const found = (await console_('POST', `/tenants/${tenantId}/channels/${channelId}/lookup`, { wabaId: '300000000000001' })).json<{ numbers: { phoneNumberId: string; alreadyHere: boolean }[] }>()
+    expect(found.numbers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ phoneNumberId: '400000000000001', alreadyHere: true }),
+        expect.objectContaining({ phoneNumberId: '400000000000002', alreadyHere: false }),
+      ]),
+    )
+    expect((await console_('POST', `/tenants/${tenantId}/channels/${channelId}/lookup`, { wabaId: '300000000000099' })).json()).toEqual({ error: 'meta_refused' })
+    expect((await console_('PUT', `/tenants/${tenantId}/channels/${channelId}`, { wabaId: '300000000000001', phoneNumberId: '400000000000777' })).json()).toEqual({ error: 'number_not_in_account' })
+    expect((await console_('PUT', `/tenants/${tenantId}/channels/${channelId}`, { wabaId: '300000000000001', phoneNumberId: other.phoneNumberId })).json()).toEqual({ error: 'phone_number_taken' })
+    expect((await console_('PUT', `/tenants/${tenantId}/channels/${randomUUID()}`, { wabaId: '300000000000001', phoneNumberId: '400000000000002' })).statusCode).toBe(404)
+  })
+
+  it('points the same number at another one: shown as Meta says, conversations kept, messages to the old one no longer arrive', async () => {
+    const changed = await console_('PUT', `/tenants/${tenantId}/channels/${channelId}`, { wabaId: '300000000000001', phoneNumberId: '400000000000002' })
+    expect(changed.json()).toEqual({ id: channelId, displayNumber: '+58 241-555-0102', subscribed: true })
+    const detail = (await console_('GET', `/tenants/${tenantId}`)).json<{ channels: { id: string; displayNumber: string; phoneNumberId?: string }[] }>()
+    expect(detail.channels).toEqual([expect.objectContaining({ id: channelId, displayNumber: '+58 241-555-0102' })])
+    const route = await new ChannelDirectory(t.db).resolve('400000000000002')
+    expect(route).toEqual({ tenantId, channelAccountId: channelId })
+    expect(await new ChannelDirectory(t.db).resolve('400000000000001')).toBeNull()
+    const kept = await t.db.select({ id: conversations.id }).from(conversations).where(eq(conversations.tenantId, tenantId))
+    expect(kept.length).toBeGreaterThan(0)
+  })
+
+  it('refreshes the shown number from Meta when it was typed wrong', async () => {
+    await t.db.update(channelAccounts).set({ displayNumber: '+58 412-000-0000' }).where(eq(channelAccounts.id, channelId))
+    expect((await console_('POST', `/tenants/${tenantId}/channels/${channelId}/refresh`)).json()).toEqual({ displayNumber: '+58 241-555-0102' })
   })
 })

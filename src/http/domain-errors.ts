@@ -15,6 +15,7 @@ import { CustomFieldNotFoundError, FieldLimitError, InvalidCustomFieldError } fr
 import { InvalidCustomValueError } from '../modules/custom-fields/custom-values.ts'
 import { UnknownBusinessTypeError } from '../modules/setup/setup-service.ts'
 import { NoChannelError, TenantNotFoundError, WabaTakenError } from '../modules/platform/tenant-admin-service.ts'
+import { MetaRefusedError, NumberNotInAccountError, NumberTakenError, TokenRequiredError } from '../modules/platform/channel-admin-service.ts'
 import { ChannelNotFoundError } from '../modules/team/channel-list.ts'
 import {
   AlreadyMemberError,
@@ -60,6 +61,10 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [TenantNotFoundError, 404, 'tenant_not_found'],
   [NoChannelError, 409, 'no_channel'],
   [WabaTakenError, 409, 'waba_taken'],
+  [NumberTakenError, 409, 'phone_number_taken'],
+  [NumberNotInAccountError, 422, 'number_not_in_account'],
+  [TokenRequiredError, 422, 'token_required'],
+  [MetaRefusedError, 422, 'meta_refused'],
   [ChannelNotFoundError, 404, 'channel_not_found'],
   [InvitationNotFoundError, 404, 'invitation_not_found'],
   [InvitationExpiredError, 410, 'invitation_expired'],

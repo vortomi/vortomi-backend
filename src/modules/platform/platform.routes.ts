@@ -8,6 +8,7 @@ import type { AccessDirectory } from '../access/access-directory.ts'
 import { type BusinessTypeService, newTypeInput, reclassifyInput } from '../setup/business-type-service.ts'
 import { type UsageService, monthParam } from '../usage/usage-service.ts'
 import { type TenantAdminService, adminInvitationInput, channelInput, lookupInput, tenantInput, tenantStatusInput } from './tenant-admin-service.ts'
+import { type ChannelAdminService, channelLookupInput, replaceNumberInput } from './channel-admin-service.ts'
 
 export interface PlatformRoutesOptions {
   directory: AccessDirectory
@@ -15,9 +16,11 @@ export interface PlatformRoutesOptions {
   db: Database
   usage: UsageService
   types: BusinessTypeService
+  channels: ChannelAdminService
 }
 
 const tenantParams = z.object({ tenantId: z.uuid() })
+const channelParams = z.object({ tenantId: z.uuid(), channelId: z.uuid() })
 const invitationParams = tenantParams.extend({ invitationId: z.uuid() })
 const sinceQuery = z.object({ since: z.iso.datetime({ offset: true }) })
 
@@ -26,7 +29,7 @@ const sinceQuery = z.object({ since: z.iso.datetime({ offset: true }) })
  * session signed in with the second factor (documentations/04, D12): this console
  * reaches every company, so a stolen password alone must not open it.
  */
-export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types }, done) => {
+export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types, channels }, done) => {
   app.addHook('preHandler', async (request) => {
     const identity = identityOf(request)
     const account = await directory.findAccount(identity.userId)
@@ -65,6 +68,22 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
   app.post('/tenants/:tenantId/channels', async (request, reply) =>
     reply.code(201).send(await tenants.connectChannel(id(request.params), parseInput(channelInput, request.body))),
   )
+
+  // A number connected by mistake, or the company's real one instead of a test number: same place in
+  // Vortomi, so its conversations stay; the stored token serves when none is typed (POST: no token in URLs).
+  app.post('/tenants/:tenantId/channels/:channelId/lookup', (request) => {
+    const { tenantId, channelId } = parseInput(channelParams, request.params)
+    const input = parseInput(channelLookupInput, request.body)
+    return channels.lookup(tenantId, channelId, input.wabaId, input.accessToken)
+  })
+  app.put('/tenants/:tenantId/channels/:channelId', (request) => {
+    const { tenantId, channelId } = parseInput(channelParams, request.params)
+    return channels.replace(tenantId, channelId, parseInput(replaceNumberInput, request.body))
+  })
+  app.post('/tenants/:tenantId/channels/:channelId/refresh', (request) => {
+    const { tenantId, channelId } = parseInput(channelParams, request.params)
+    return channels.refresh(tenantId, channelId)
+  })
 
   app.get('/tenants/:tenantId/inbound', (request) =>
     tenants.lastInbound(id(request.params), new Date(parseInput(sinceQuery, request.query).since)),

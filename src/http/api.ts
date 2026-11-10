@@ -24,6 +24,7 @@ import { UsageService } from '../modules/usage/usage-service.ts'
 import { usageRoutes } from '../modules/usage/usage.routes.ts'
 import { platformRoutes } from '../modules/platform/platform.routes.ts'
 import { TenantAdminService } from '../modules/platform/tenant-admin-service.ts'
+import { ChannelAdminService } from '../modules/platform/channel-admin-service.ts'
 import { InvitationService } from '../modules/team/invitation-service.ts'
 import { invitationRoutes, publicInvitationRoutes } from '../modules/team/invitation.routes.ts'
 import { TeamService } from '../modules/team/team-service.ts'
@@ -103,7 +104,8 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   const tenantAdmin = new TenantAdminService(db, invitations, credentials, wabaDirectory)
   const businessTypes = new BusinessTypeService(db)
   await app.register(businessTypeRoutes, { types: businessTypes })
-  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage, types: businessTypes })
+  const channelAdmin = new ChannelAdminService(db, credentials, wabaDirectory, tenantAdmin)
+  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage, types: businessTypes, channels: channelAdmin })
   await app.register(usageRoutes, { prefix: COMPANY, db, usage })
   await app.register(conversationRoutes, {
     prefix: `${COMPANY}/conversations`,
