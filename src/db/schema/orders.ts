@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
-import { check, customType, foreignKey, index, integer, numeric, pgTable, primaryKey, text, unique, uuid } from 'drizzle-orm/pg-core'
+import { check, customType, foreignKey, index, integer, numeric, pgTable, primaryKey, text, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { memberships } from './access.ts'
 import { createdAtColumn, oneOf, quantityColumn, tenantIdColumn, timestamptz, uuidIdColumn } from './columns.ts'
 import { conversations } from './conversations.ts'
 import { FULFILLMENTS, ORDER_STATUSES, SALE_UNITS } from './enums.ts'
@@ -32,6 +33,11 @@ export const orders = pgTable(
     bsPerUsd: numeric('bs_per_usd', { precision: 18, scale: 8 }),
     // The bank reference of the customer's payment, typed by whoever checks it (goes on the receipt).
     paymentReference: text('payment_reference'),
+    // What the person checking the payment saw arrive, in the payment method's currency (Bs, $ or €).
+    receivedAmount: numeric('received_amount', { precision: 14, scale: 2 }),
+    // Who confirmed the payment and when; set while the order counts as sold (confirmed or done).
+    confirmedAt: timestamptz('confirmed_at'),
+    confirmedBy: uuid('confirmed_by'),
     createdAt: createdAtColumn(),
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
@@ -48,6 +54,15 @@ export const orders = pgTable(
     check('orders_delivery_address_check', sql`${t.fulfillment} = 'pickup' or length(coalesce(${t.address}, '')) > 0`),
     check('orders_text_check', sql`length(${t.customerName}) between 1 and 80 and length(${t.notes}) <= 500 and length(coalesce(${t.address}, '')) <= 300`),
     check('orders_payment_reference_check', sql`length(coalesce(${t.paymentReference}, '')) <= 40`),
+    check('orders_received_amount_check', sql`${t.receivedAmount} is null or ${t.receivedAmount} > 0`),
+    // A sold order always says when it was confirmed: the daily close counts it on that day.
+    check('orders_confirmed_check', sql`${t.status} not in ('confirmed', 'done') or ${t.confirmedAt} is not null`),
+    foreignKey({ name: 'orders_confirmed_by_fk', columns: [t.tenantId, t.confirmedBy], foreignColumns: [memberships.tenantId, memberships.userId] }),
+    // One payment cannot pay two orders: a reference is used once per payment method among sold orders.
+    uniqueIndex('orders_paid_reference_key')
+      .on(t.tenantId, t.paymentMethodId, t.paymentReference)
+      .where(sql`${t.status} in ('confirmed', 'done') and ${t.paymentReference} is not null`),
+    index('orders_tenant_confirmed_idx').on(t.tenantId, t.confirmedAt),
   ],
 )
 
@@ -92,10 +107,13 @@ export const mediaFiles = pgTable(
     mimeType: text('mime_type').notNull(),
     sizeBytes: integer('size_bytes').notNull(),
     content: bytea('content').notNull(),
+    // Fingerprint of the file: the same capture sent for two orders is spotted without reading it.
+    sha256: text('sha256').generatedAlwaysAs(sql`encode(sha256(content), 'hex')`),
     createdAt: createdAtColumn(),
   },
   (t) => [
     unique('media_files_tenant_id_id_key').on(t.tenantId, t.id),
+    index('media_files_tenant_sha256_idx').on(t.tenantId, t.sha256),
     unique('media_files_tenant_wa_media_key').on(t.tenantId, t.waMediaId),
     check('media_files_size_check', sql`${t.sizeBytes} between 1 and 5242880`),
   ],

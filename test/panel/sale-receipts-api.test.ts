@@ -36,7 +36,7 @@ async function placeOrder(): Promise<string> {
   const { conversationId } = await withTenant(t.db, a.tenantId, (scope) => new IngestService().recordInbound(scope, a.channelAccountId, event))
   const [order] = await t.db
     .insert(orders)
-    .values({ tenantId: a.tenantId, conversationId, code: `P-SALE0${n}`, status: 'confirmed', sourceKey: `sale-${n}`, customerName: 'María Pérez', fulfillment: 'pickup', subtotalCents: 330, deliveryCents: 0, bsPerUsd: '100.00' })
+    .values({ tenantId: a.tenantId, conversationId, code: `P-SALE0${n}`, status: 'confirmed', confirmedAt: new Date(), sourceKey: `sale-${n}`, customerName: 'María Pérez', fulfillment: 'pickup', subtotalCents: 330, deliveryCents: 0, bsPerUsd: '100.00' })
     .returning({ id: orders.id })
   await t.db.insert(orderLines).values([
     { tenantId: a.tenantId, orderId: order!.id, position: 0, productRef: 'v1', name: 'Queso blanco', quantity: 0.15, saleUnit: 'kg', unitPriceCents: 1000 },
@@ -98,10 +98,10 @@ describe('Ajustes → Recibo', () => {
 describe('completing an order', () => {
   it('issues its receipt with the next number and sends it to the customer, once', async () => {
     const orderId = await placeOrder()
-    expect((await call(who.laura, 'PUT', `/orders/${orderId}/payment-reference`, { reference: ' 000123 ' })).statusCode).toBe(204)
+    expect((await call(who.laura, 'PUT', `/orders/${orderId}/payment`, { reference: ' 000123 ', receivedAmount: '' })).statusCode).toBe(204)
     const before = images().length
-    expect((await call(who.laura, 'PUT', `/orders/${orderId}/status`, { status: 'done' })).statusCode).toBe(204)
-    expect((await call(who.laura, 'PUT', `/orders/${orderId}/status`, { status: 'done' })).statusCode).toBe(204)
+    expect((await call(who.laura, 'PUT', `/orders/${orderId}/status`, { status: 'done' })).statusCode).toBe(200)
+    expect((await call(who.laura, 'PUT', `/orders/${orderId}/status`, { status: 'done' })).statusCode).toBe(200)
 
     const sent = images().slice(before)
     expect(sent).toHaveLength(1)

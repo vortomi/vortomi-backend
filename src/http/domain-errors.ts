@@ -26,6 +26,7 @@ import {
 import { LastAdminError, MemberNotFoundError, SelfDisableError } from '../modules/team/team-service.ts'
 import { AssigneeCannotAttendError, ConversationNotFoundError, MentionNotMemberError } from '../modules/conversations/conversation-commands.ts'
 import { OrderNotFoundError } from '../modules/orders/order-service.ts'
+import { PaymentReferenceRequiredError, PaymentReferenceUsedError } from '../modules/orders/payment-proof.ts'
 import { InvalidPictureError } from '../modules/sale-receipts/picture.ts'
 import { ReceiptAlreadyIssuedError, SaleReceiptNotFoundError } from '../modules/sale-receipts/sale-receipt-service.ts'
 import { PaymentMethodNotFoundError, PaymentMethodOrderError } from '../modules/payment-methods/payment-method-service.ts'
@@ -74,6 +75,8 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [StageNotFoundError, 404, 'stage_not_found'],
   [AssigneeCannotAttendError, 422, 'assignee_cannot_attend'],
   [OrderNotFoundError, 404, 'order_not_found'],
+  [PaymentReferenceRequiredError, 409, 'payment_reference_required'],
+  [PaymentReferenceUsedError, 409, 'payment_reference_used'],
   [SaleReceiptNotFoundError, 404, 'sale_receipt_not_found'],
   [ReceiptAlreadyIssuedError, 409, 'receipt_already_issued'],
   [InvalidPictureError, 422, 'invalid_picture'],
@@ -131,6 +134,8 @@ const CONSTRAINT_CONFLICTS: Record<string, string> = {
   products_variant_type_3_fk: 'variant_type_in_use',
   product_variants_stock_check: 'insufficient_stock',
   stock_movements_sign_check: 'invalid_movement',
+  // Two people saving the same reference at once: the service checks first, the index has the last word.
+  orders_paid_reference_key: 'payment_reference_used',
 }
 // 23505 unique, 23503 foreign key, 23514 check.
 const CONFLICT_CODES = new Set(['23505', '23503', '23514'])

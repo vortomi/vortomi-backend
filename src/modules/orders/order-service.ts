@@ -2,13 +2,16 @@ import { randomBytes } from 'node:crypto'
 import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { type Fulfillment, ORDER_STATUSES, type OrderStatus, type PaymentMethodType, type SaleUnit } from '../../db/schema/enums.ts'
-import { contacts, conversations, mediaFiles, orderLines, orderReceipts, orders, paymentMethods, saleReceipts } from '../../db/schema/index.ts'
+import { contacts, conversations, mediaFiles, orderLines, orderReceipts, orders, paymentMethods, saleReceipts, users } from '../../db/schema/index.ts'
 import type { MemberScope } from '../access/member-scope.ts'
 import { returnToAgent } from '../conversations/agent-handoff.ts'
 import { visibleConversations } from '../conversations/visibility.ts'
 import { type PaymentCurrency, currencyOf } from '../payment-methods/payment-method-types.ts'
 import type { TenantScope } from '../tenancy/tenant-scope.ts'
 import type { OrderQuote } from './order-quote.ts'
+import { type StockShortfall, giveBackStock, takeStock } from './order-stock.ts'
+import { type PaymentAlerts, paymentAlerts } from './payment-alerts.ts'
+import { type PaymentCheck, SOLD, checkPaymentProof, expectedAmount } from './payment-proof.ts'
 
 export class OrderNotFoundError extends Error {
   constructor() {
@@ -35,6 +38,11 @@ export interface OrderView {
   notes: string
   /** The bank reference of the payment, typed by whoever checked it. */
   paymentReference: string | null
+  /** What arrived, in the payment method's currency (dollars without a method), as the person wrote it. */
+  receivedAmount: string | null
+  /** When and by whom the payment was confirmed; null while it is not sold (or for a person who left). */
+  confirmedAt: Date | null
+  confirmedBy: string | null
   lines: { name: string; quantity: number; saleUnit: SaleUnit; unitPriceCents: number }[]
   subtotalCents: number
   deliveryCents: number | null
@@ -56,10 +64,23 @@ export interface OrderDetail extends OrderView {
   receipts: { mediaId: string; mimeType: string; sizeBytes: number; createdAt: Date }[]
   /** Null until the order is completed (or when the company gives no receipts). Code null: the team's own. */
   saleReceipt: { code: string | null; createdAt: Date } | null
+  /** What should arrive, in the payment method's currency; null when it cannot be known. */
+  expectedAmount: string | null
+  alerts: PaymentAlerts
 }
 
-/** "Referencia": what the bank printed on the payment; empty clears it. */
-export const paymentReferenceInput = z.object({ reference: z.string().trim().max(40) })
+export interface OrderFilters {
+  status?: OrderStatus
+  conversationId?: string
+  orderId?: string
+  /** Sold orders confirmed on that day ("2026-11-10") of the company's clock. */
+  soldOn?: { date: string; timezone: string }
+}
+
+/** What changed when an order became sold: products the inventory did not have enough of. */
+export interface SaleOutcome {
+  stockShortfalls: StockShortfall[]
+}
 
 /** Confirming goes through its own action: the customer is told (order-confirmation.ts). */
 export const orderStatusInput = z.object({ status: z.enum(ORDER_STATUSES.filter((s) => s !== 'confirmed') as [OrderStatus, ...OrderStatus[]]) })
@@ -127,7 +148,14 @@ export class OrderService {
   }
 
   /** What the person may see: orders of the conversations visible to them, newest first. */
-  async list(scope: MemberScope, filters: { status?: OrderStatus; conversationId?: string; orderId?: string }): Promise<OrderView[]> {
+  async list(scope: MemberScope, filters: OrderFilters): Promise<OrderView[]> {
+    const soldOn = filters.soldOn
+      ? and(
+          inArray(orders.status, [...SOLD]),
+          sql`${orders.confirmedAt} >= (${filters.soldOn.date}::date::timestamp at time zone ${filters.soldOn.timezone})`,
+          sql`${orders.confirmedAt} < ((${filters.soldOn.date}::date + 1)::timestamp at time zone ${filters.soldOn.timezone})`,
+        )
+      : undefined
     const rows = await scope.tx
       .select({
         id: orders.id,
@@ -144,6 +172,9 @@ export class OrderService {
         methodType: paymentMethods.type,
         notes: orders.notes,
         paymentReference: orders.paymentReference,
+        receivedAmount: orders.receivedAmount,
+        confirmedAt: orders.confirmedAt,
+        confirmedBy: users.name,
         subtotalCents: orders.subtotalCents,
         deliveryCents: orders.deliveryCents,
         bsPerUsd: orders.bsPerUsd,
@@ -154,6 +185,7 @@ export class OrderService {
       .innerJoin(conversations, and(eq(conversations.tenantId, orders.tenantId), eq(conversations.id, orders.conversationId)))
       .innerJoin(contacts, and(eq(contacts.tenantId, conversations.tenantId), eq(contacts.id, conversations.contactId)))
       .leftJoin(paymentMethods, and(eq(paymentMethods.tenantId, orders.tenantId), eq(paymentMethods.id, orders.paymentMethodId)))
+      .leftJoin(users, eq(users.id, orders.confirmedBy))
       .where(
         and(
           eq(orders.tenantId, scope.tenantId),
@@ -161,10 +193,12 @@ export class OrderService {
           filters.status ? eq(orders.status, filters.status) : undefined,
           filters.conversationId ? eq(orders.conversationId, filters.conversationId) : undefined,
           filters.orderId ? eq(orders.id, filters.orderId) : undefined,
+          soldOn,
         ),
       )
       .orderBy(desc(orders.createdAt))
-      .limit(200)
+      // A day's close needs every order of the day; the lists show the latest ones.
+      .limit(filters.soldOn ? 2000 : 200)
     if (!rows.length) return []
     const lines = await scope.tx
       .select({ orderId: orderLines.orderId, name: orderLines.name, quantity: orderLines.quantity, saleUnit: orderLines.saleUnit, unitPriceCents: orderLines.unitPriceCents })
@@ -191,17 +225,37 @@ export class OrderService {
       .select({ code: saleReceipts.code, createdAt: saleReceipts.createdAt })
       .from(saleReceipts)
       .where(and(eq(saleReceipts.tenantId, scope.tenantId), eq(saleReceipts.orderId, orderId)))
-    return { ...order, receipts, saleReceipt: saleReceipt ?? null }
+    const expected = expectedAmount(order, order.paymentMethod?.currency ?? 'USD')
+    const alerts = await paymentAlerts(scope, { id: order.id, paymentMethodId: order.paymentMethod?.id ?? null, paymentReference: order.paymentReference }, { expected, received: order.receivedAmount })
+    return { ...order, receipts, saleReceipt: saleReceipt ?? null, expectedAmount: expected, alerts }
   }
 
-  /** Whoever sees the order writes down the payment's reference (it goes on the sale receipt). */
-  async setPaymentReference(scope: MemberScope, orderId: string, reference: string): Promise<void> {
-    const updated = await scope.tx
+  /**
+   * Whoever sees the order writes down the payment's reference (it goes on the sale receipt) and
+   * what arrived. A sold order keeps a reference its method asks for, and never one that paid another.
+   */
+  async setPayment(scope: MemberScope, orderId: string, check: PaymentCheck): Promise<void> {
+    const order = await this.lock(scope, orderId)
+    const paymentReference = check.reference || null
+    if (SOLD.includes(order.status)) await checkPaymentProof(scope, { ...order, paymentReference })
+    await scope.tx
       .update(orders)
-      .set({ paymentReference: reference || null })
+      .set({ paymentReference, receivedAmount: check.receivedAmount || null })
+      .where(and(eq(orders.tenantId, scope.tenantId), eq(orders.id, orderId)))
+  }
+
+  /**
+   * The order, locked until the transaction ends (two people confirming at once: the second waits
+   * and finds it confirmed). Only to someone who sees its conversation.
+   */
+  private async lock(scope: MemberScope, orderId: string) {
+    const [order] = await scope.tx
+      .select({ id: orders.id, code: orders.code, status: orders.status, paymentMethodId: orders.paymentMethodId, paymentReference: orders.paymentReference })
+      .from(orders)
       .where(and(eq(orders.tenantId, scope.tenantId), eq(orders.id, orderId), visibleOrder(scope)))
-      .returning({ id: orders.id })
-    if (!updated.length) throw new OrderNotFoundError()
+      .for('update')
+    if (!order) throw new OrderNotFoundError()
+    return order
   }
 
   /** A receipt's file, only to someone who sees its order. */
@@ -220,14 +274,38 @@ export class OrderService {
    * Moves an order along; only someone who sees its conversation. Completing or cancelling the
    * last open order of the conversation gives it back to the agent: the next purchase needs nobody.
    */
-  async setStatus(scope: MemberScope, orderId: string, status: OrderStatus): Promise<void> {
+  async setStatus(scope: MemberScope, orderId: string, status: OrderStatus): Promise<SaleOutcome> {
+    const order = await this.lock(scope, orderId)
+    const outcome = await this.moveSale(scope, order, status)
     const [updated] = await scope.tx
       .update(orders)
-      .set({ status, updatedAt: sql`now()` })
-      .where(and(eq(orders.tenantId, scope.tenantId), eq(orders.id, orderId), visibleOrder(scope)))
+      .set({ status, updatedAt: sql`now()`, ...this.confirmedFields(scope, order.status, status) })
+      .where(and(eq(orders.tenantId, scope.tenantId), eq(orders.id, orderId)))
       .returning({ conversationId: orders.conversationId })
-    if (!updated) throw new OrderNotFoundError()
-    if (CLOSED.includes(status) && !(await this.hasOpenOrder(scope, updated.conversationId))) await returnToAgent(scope, updated.conversationId)
+    if (CLOSED.includes(status) && !(await this.hasOpenOrder(scope, updated!.conversationId))) await returnToAgent(scope, updated!.conversationId)
+    return outcome
+  }
+
+  /**
+   * Becoming sold (confirmed or done, from a status that was not) checks the payment proof and takes
+   * the products out of the inventory; leaving it (cancelled, reopened) puts them back.
+   */
+  private async moveSale(scope: MemberScope, order: Awaited<ReturnType<OrderService['lock']>>, to: OrderStatus): Promise<SaleOutcome> {
+    const wasSold = SOLD.includes(order.status)
+    const isSold = SOLD.includes(to)
+    if (isSold && !wasSold) {
+      await checkPaymentProof(scope, order)
+      return { stockShortfalls: await takeStock(scope, order) }
+    }
+    if (wasSold && !isSold) await giveBackStock(scope, order)
+    return { stockShortfalls: [] }
+  }
+
+  /** Who confirmed and when: written as the order becomes sold, cleared when it stops being sold. */
+  private confirmedFields(scope: MemberScope, from: OrderStatus, to: OrderStatus) {
+    if (SOLD.includes(to) && !SOLD.includes(from)) return { confirmedAt: sql`now()`, confirmedBy: scope.member.userId }
+    if (!SOLD.includes(to) && SOLD.includes(from)) return { confirmedAt: null, confirmedBy: null }
+    return {}
   }
 
   private async hasOpenOrder(scope: TenantScope, conversationId: string): Promise<boolean> {
@@ -243,17 +321,15 @@ export class OrderService {
    * Confirms an order still waiting for payment or its review. Null when it was confirmed already
    * (or moved on): then nobody tells the customer twice.
    */
-  async confirm(scope: MemberScope, orderId: string): Promise<{ conversationId: string; code: string; customerName: string } | null> {
-    const [order] = await scope.tx
-      .select({ status: orders.status })
-      .from(orders)
-      .where(and(eq(orders.tenantId, scope.tenantId), eq(orders.id, orderId), visibleOrder(scope)))
-    if (!order) throw new OrderNotFoundError()
+  async confirm(scope: MemberScope, orderId: string): Promise<({ conversationId: string; code: string; customerName: string } & SaleOutcome) | null> {
+    const order = await this.lock(scope, orderId)
+    if (!CONFIRMABLE.includes(order.status)) return null
+    const outcome = await this.moveSale(scope, order, 'confirmed')
     const [confirmed] = await scope.tx
       .update(orders)
-      .set({ status: 'confirmed', updatedAt: sql`now()` })
-      .where(and(eq(orders.tenantId, scope.tenantId), eq(orders.id, orderId), inArray(orders.status, CONFIRMABLE)))
+      .set({ status: 'confirmed', updatedAt: sql`now()`, ...this.confirmedFields(scope, order.status, 'confirmed') })
+      .where(and(eq(orders.tenantId, scope.tenantId), eq(orders.id, orderId)))
       .returning({ conversationId: orders.conversationId, code: orders.code, customerName: orders.customerName })
-    return confirmed ?? null
+    return { ...confirmed!, ...outcome }
   }
 }

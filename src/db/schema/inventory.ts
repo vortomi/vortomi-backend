@@ -3,6 +3,7 @@ import { boolean, check, foreignKey, index, integer, pgTable, text, unique, uniq
 import { memberships } from './access.ts'
 import { createdAtColumn, customValuesColumn, oneOf, quantityColumn, serialIdColumn, tenantIdColumn, uuidIdColumn } from './columns.ts'
 import { DECIMAL_SALE_UNITS, SALE_UNITS, STOCK_MODES, STOCK_MOVEMENT_KINDS } from './enums.ts'
+import { orders } from './orders.ts'
 import { tenants } from './tenancy.ts'
 
 // Inventory (documentations/05): stock is a history of immutable movements; the
@@ -219,11 +220,15 @@ export const stockMovements = pgTable(
     quantity: quantity('quantity').notNull(),
     reason: text('reason').notNull().default(''),
     userId: uuid('user_id').notNull(),
+    // The order a sale (or its return) belongs to: confirming twice never takes the stock twice.
+    orderId: uuid('order_id'),
     createdAt: createdAtColumn(),
   },
   (t) => [
     foreignKey({ name: 'stock_movements_variant_fk', columns: [t.tenantId, t.variantId], foreignColumns: [productVariants.tenantId, productVariants.id] }),
     foreignKey({ name: 'stock_movements_user_fk', columns: [t.tenantId, t.userId], foreignColumns: [memberships.tenantId, memberships.userId] }),
+    foreignKey({ name: 'stock_movements_order_fk', columns: [t.tenantId, t.orderId], foreignColumns: [orders.tenantId, orders.id] }),
+    index('stock_movements_order_idx').on(t.tenantId, t.orderId),
     index('stock_movements_variant_created_idx').on(t.tenantId, t.variantId, t.createdAt),
     check('stock_movements_kind_check', oneOf(t.kind, STOCK_MOVEMENT_KINDS)),
     check(

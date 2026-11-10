@@ -254,13 +254,27 @@ describe('orders for the team', () => {
   it('confirming tells the customer once; the other statuses only move the order', async () => {
     const order = await orderOf(placed.conversationId)
     expect((await call(who.carlos, 'PUT', `/orders/${order.id}/status`, { status: 'confirmed' })).statusCode).toBe(400)
-    expect((await call(who.carlos, 'POST', `/orders/${order.id}/confirm`)).statusCode).toBe(204)
-    expect((await call(who.carlos, 'POST', `/orders/${order.id}/confirm`)).statusCode).toBe(204)
+    // Pago móvil asks for the reference: without it, nothing is confirmed and nobody is told.
+    const refused = await call(who.carlos, 'POST', `/orders/${order.id}/confirm`)
+    expect([refused.statusCode, refused.json()]).toEqual([409, { error: 'payment_reference_required' }])
+    expect(sentBodies(sender)).toEqual([])
+    expect((await call(who.carlos, 'PUT', `/orders/${order.id}/payment`, { reference: ' 0001 2345 ', receivedAmount: '1687.43' })).statusCode).toBe(204)
+    const confirmed = await call(who.carlos, 'POST', `/orders/${order.id}/confirm`)
+    expect([confirmed.statusCode, confirmed.json()]).toEqual([200, { stockShortfalls: [] }])
+    expect((await call(who.carlos, 'POST', `/orders/${order.id}/confirm`)).json()).toEqual({ stockShortfalls: [] })
     expect(sentBodies(sender)).toEqual([
       '¡Listo, María! Tu pedido ha sido confirmado. Nos pondremos en contacto contigo para concretar el pedido y posteriormente la entrega. ¡Muchas gracias por confiar en nosotros! 😊',
     ])
     expect((await orderOf(placed.conversationId)).status).toBe('confirmed')
-    expect((await call(who.carlos, 'PUT', `/orders/${order.id}/status`, { status: 'done' })).statusCode).toBe(204)
+    // 2 × $0,90 + $1 of delivery at the order's 888,12 Bs/$: Bs 2.486,74 expected, 1.687,43 arrived.
+    expect((await call(who.carlos, 'GET', `/orders/${order.id}`)).json()).toMatchObject({
+      paymentReference: '00012345',
+      receivedAmount: '1687.43',
+      expectedAmount: '2486.74',
+      confirmedBy: 'Carlos',
+      alerts: { referenceUsedIn: [], receiptUsedIn: [], shortBy: '799.31' },
+    })
+    expect((await call(who.carlos, 'PUT', `/orders/${order.id}/status`, { status: 'done' })).statusCode).toBe(200)
     expect((await call(who.laura, 'GET', '/orders?status=done')).json<{ items: unknown[] }>().items).toHaveLength(1)
     expect((await call(who.laura, 'PUT', `/orders/${order.id}/status`, { status: 'shipped' })).statusCode).toBe(400)
   })
@@ -276,9 +290,9 @@ describe('orders for the team', () => {
       .insert(orders)
       .values({ tenantId: a.tenantId, conversationId: placed.cashConversationId, code: 'P-SECOND', sourceKey: 'second-order', customerName: 'María Pérez', fulfillment: 'pickup', subtotalCents: 90 })
       .returning({ id: orders.id })
-    expect((await call(who.laura, 'PUT', `/orders/${cash.id}/status`, { status: 'cancelled' })).statusCode).toBe(204)
+    expect((await call(who.laura, 'PUT', `/orders/${cash.id}/status`, { status: 'cancelled' })).statusCode).toBe(200)
     expect(await handoffOf(placed.cashConversationId)).toBe('order_placed')
-    expect((await call(who.laura, 'PUT', `/orders/${second!.id}/status`, { status: 'done' })).statusCode).toBe(204)
+    expect((await call(who.laura, 'PUT', `/orders/${second!.id}/status`, { status: 'done' })).statusCode).toBe(200)
     expect(await handoffOf(placed.cashConversationId)).toBeNull()
   })
 })
@@ -321,7 +335,9 @@ describe('an order in progress', () => {
   it('once the order is closed the agent sells again, and still knows how that order ended', async () => {
     const conversationId = await customerWrites(from, '¿Ya salió?')
     const [order] = await t.db.select({ id: orders.id }).from(orders).where(eq(orders.conversationId, conversationId))
-    await app.inject({ method: 'PUT', url: `/api/tenants/${a.tenantId}/orders/${order!.id}/status`, headers: await bearer(who.laura), payload: { status: 'done' } })
+    const headers = await bearer(who.laura)
+    await app.inject({ method: 'PUT', url: `/api/tenants/${a.tenantId}/orders/${order!.id}/payment`, headers, payload: { reference: '778899', receivedAmount: '' } })
+    await app.inject({ method: 'PUT', url: `/api/tenants/${a.tenantId}/orders/${order!.id}/status`, headers, payload: { status: 'done' } })
     expect(await handoffOf(conversationId)).toBeNull()
 
     // Days later (after the receipt went out), the customer writes again.

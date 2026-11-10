@@ -48,6 +48,7 @@ import { agentRoutes } from '../modules/agent/agent.routes.ts'
 import { DeliveryService } from '../modules/delivery/delivery-service.ts'
 import { deliveryRoutes } from '../modules/delivery/delivery.routes.ts'
 import { BotDelivery } from '../modules/messaging/bot-delivery.ts'
+import { DailyCloseService } from '../modules/orders/daily-close.ts'
 import { OrderConfirmation } from '../modules/orders/order-confirmation.ts'
 import { OrderService } from '../modules/orders/order-service.ts'
 import { PaymentMethodService } from '../modules/payment-methods/payment-method-service.ts'
@@ -133,7 +134,7 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   const confirmation = new OrderConfirmation(orders, botDelivery)
   const receiptSettings = new ReceiptSettingsService()
   const saleReceipts = new SaleReceiptService(orders, receiptSettings, botDelivery)
-  await app.register(orderRoutes, { prefix: COMPANY, db, orders, confirmation, saleReceipts })
+  await app.register(orderRoutes, { prefix: COMPANY, db, orders, confirmation, saleReceipts, dailyClose: new DailyCloseService(orders) })
   await app.register(saleReceiptRoutes, { prefix: COMPANY, db, settings: receiptSettings, receipts: saleReceipts })
   await app.register(workspaceRoutes, {
     prefix: COMPANY,

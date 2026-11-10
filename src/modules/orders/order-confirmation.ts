@@ -1,6 +1,6 @@
 import type { MemberScope } from '../access/member-scope.ts'
 import { type BotDelivery, type BotDraft, botMessageId, findTarget, storeBotText } from '../messaging/bot-delivery.ts'
-import type { OrderService } from './order-service.ts'
+import type { OrderService, SaleOutcome } from './order-service.ts'
 
 /** What the customer reads when their order is confirmed, in the business's own voice (no order code). */
 export const confirmationText = (customerName: string) =>
@@ -17,15 +17,19 @@ export class OrderConfirmation {
     private readonly delivery: Pick<BotDelivery, 'deliver'>,
   ) {}
 
-  /** Inside the person's transaction. Null when there is nothing to send (already confirmed). */
-  async confirm(scope: MemberScope, orderId: string): Promise<BotDraft | null> {
+  /**
+   * Inside the person's transaction. The draft is null when there is nothing to send (already
+   * confirmed); the shortfalls are the products the inventory did not have enough of.
+   */
+  async confirm(scope: MemberScope, orderId: string): Promise<{ draft: BotDraft | null } & SaleOutcome> {
     const order = await this.orders.confirm(scope, orderId)
-    if (!order) return null
+    if (!order) return { draft: null, stockShortfalls: [] }
+    const { stockShortfalls } = order
     const target = await findTarget(scope.tx, scope.tenantId, order.conversationId)
-    if (!target) return null
+    if (!target) return { draft: null, stockShortfalls }
     const body = confirmationText(order.customerName)
     const messageId = await storeBotText(scope.tx, scope.tenantId, order.conversationId, botMessageId('order-confirmed', orderId), body)
-    return messageId === null ? null : { messageId, ...target, body }
+    return { draft: messageId === null ? null : { messageId, ...target, body }, stockShortfalls }
   }
 
   /** After the transaction committed. Meta's errors stay on the message (never thrown). */
