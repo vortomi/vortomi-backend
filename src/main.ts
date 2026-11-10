@@ -19,6 +19,7 @@ import { SalesAgent } from './modules/agent/sales-agent.ts'
 import { CatalogSources } from './modules/catalog-source/catalog-sources.ts'
 import { CatalogCache } from './modules/catalog-source/external-catalog.ts'
 import { CatalogSourceError } from './modules/catalog-source/lacampina-client.ts'
+import { companyIsActive } from './modules/tenancy/company-status.ts'
 import { AutoResponder } from './modules/messaging/auto-responder.ts'
 import { ReceiptCollector } from './modules/orders/receipt-collector.ts'
 import { AwayReplyService } from './modules/messaging/away-reply.ts'
@@ -103,7 +104,7 @@ async function main(): Promise<void> {
   const model = env.GEMINI_API_KEY ? new GeminiModel(env.GEMINI_API_KEY, env.AGENT_MODEL) : null
   const salesAgent = new SalesAgent(db, delivery, model, { monthlyCap: env.AGENT_MONTHLY_REPLY_CAP, debounceMs: AGENT_DEBOUNCE_MS, log: app.log, catalogs })
   const receipts = new ReceiptCollector(db, credentials, cloudApi, delivery, app.log)
-  const autoResponder = new AutoResponder(salesAgent, new AwayReplyService(db, delivery, app.log), app.log, receipts)
+  const autoResponder = new AutoResponder(salesAgent, new AwayReplyService(db, delivery, app.log), app.log, receipts, companyIsActive(db))
 
   const repository = new WebhookEventRepository(db)
   const router = new EventRouter(
