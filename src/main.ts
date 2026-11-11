@@ -29,10 +29,18 @@ import { ChannelDirectory } from './modules/tenancy/channel-directory.ts'
 import { CloudApiClient } from './modules/whatsapp/cloud-api.client.ts'
 import { TemplateService } from './modules/templates/template-service.ts'
 import { parseWebhookPayload } from './modules/whatsapp/webhook-parser.ts'
+import { KeyedLanes } from './shared/keyed-lanes.ts'
 
 const SWEEP_INTERVAL_MS = 60_000
+// Attempts per webhook, waiting longer each time (30 s ×4): about a day and a half in all.
+const WEBHOOK_MAX_ATTEMPTS = 7
+const WEBHOOK_KEEP_MS = 30 * 24 * 60 * 60_000
 /** The agent waits this long after a customer message: several quick messages get one answer. */
 const AGENT_DEBOUNCE_MS = 4_000
+// Automatic answers running at once (each may wait on Meta or on a download); below the database pool.
+const AUTO_REPLY_CONCURRENCY = 3
+// On shutdown, how long answers on their way get to finish (Gemini's free tier takes 20-30 s).
+const SHUTDOWN_ANSWERS_MS = 45_000
 
 async function main(): Promise<void> {
   if (existsSync('.env')) process.loadEnvFile('.env')
@@ -100,11 +108,22 @@ async function main(): Promise<void> {
 
   // Automatic answers: the sales agent where its company keeps it on, else the away message.
   // Without a model key the agent stays off for every company.
-  const delivery = new BotDelivery(db, credentials, cloudApi, cloudApi)
+  const delivery = new BotDelivery(db, credentials, cloudApi, cloudApi, app.log)
   const model = env.GEMINI_API_KEY ? new GeminiModel(env.GEMINI_API_KEY, env.AGENT_MODEL) : null
   const salesAgent = new SalesAgent(db, delivery, model, { monthlyCap: env.AGENT_MONTHLY_REPLY_CAP, debounceMs: AGENT_DEBOUNCE_MS, log: app.log, catalogs })
   const receipts = new ReceiptCollector(db, credentials, cloudApi, delivery, app.log)
   const autoResponder = new AutoResponder(salesAgent, new AwayReplyService(db, delivery, app.log), app.log, receipts, companyIsActive(db))
+  // Automatic answers run apart from the webhook queue, in order per conversation and a few at once:
+  // a slow call to Meta (an away message, a receipt download) no longer holds back other companies.
+  const replies = new KeyedLanes(AUTO_REPLY_CONCURRENCY, (conversationId, error) =>
+    app.log.error({ err: error, conversationId }, 'Automatic answer failed'),
+  )
+  const detachedReplies: Pick<AutoResponder, 'afterInbound'> = {
+    afterInbound: (tenantId, trigger) => {
+      replies.run(trigger.conversationId, () => autoResponder.afterInbound(tenantId, trigger))
+      return Promise.resolve()
+    },
+  }
 
   const repository = new WebhookEventRepository(db)
   const router = new EventRouter(
@@ -113,20 +132,31 @@ async function main(): Promise<void> {
     new IngestService(),
     new MessageStatusService(),
     new TemplateService(db, credentials, cloudApi),
-    autoResponder,
+    detachedReplies,
   )
-  const processor = new WebhookProcessor(repository, parseWebhookPayload, router, app.log)
+  const processor = new WebhookProcessor(repository, parseWebhookPayload, router, app.log, WEBHOOK_MAX_ATTEMPTS)
   const queue = new SerialQueue(
     (id) => processor.process(id),
     (id, error) => app.log.error({ webhookEventId: id, err: error }, 'Webhook processing crashed'),
   )
-  const inbox = new WebhookInbox(repository, queue, { maxAttempts: 5, sweepGraceMs: 30_000, sweepBatchSize: 50 })
+  const inbox = new WebhookInbox(repository, queue, { maxAttempts: WEBHOOK_MAX_ATTEMPTS, sweepGraceMs: 30_000, sweepBatchSize: 50, retryBackoffMs: 30_000 })
 
   // Recover whatever a previous run left unprocessed, then keep sweeping.
-  const runSweep = () =>
-    inbox.sweep().catch((error: unknown) => app.log.error({ err: error }, 'Webhook recovery sweep failed'))
+  const runSweep = async () => {
+    await inbox.sweep().catch((error: unknown) => app.log.error({ err: error }, 'Webhook recovery sweep failed'))
+    // Processed webhooks are kept 30 days (to look into a problem), then removed a batch at a time.
+    await repository
+      .purgeProcessed(new Date(Date.now() - WEBHOOK_KEEP_MS))
+      .catch((error: unknown) => app.log.error({ err: error }, 'Webhook purge failed'))
+  }
   await runSweep()
   const sweepTimer = setInterval(() => void runSweep(), SWEEP_INTERVAL_MS)
+  // A restart (a deploy) loses the agent's pending answers: the unanswered messages of the last
+  // minutes are answered now.
+  salesAgent
+    .resumePending()
+    .then((count) => count && app.log.info({ count }, 'Sales agent resumed unanswered conversations'))
+    .catch((error: unknown) => app.log.error({ err: error }, 'Sales agent resume failed'))
   // One LISTEN connection for the whole server; the panels' streams hang from it.
   const stopFeed = await feed.start(database.listen)
   const stopBcv = bcv.start(env.BCV_CHECK_INTERVAL_MS)
@@ -141,6 +171,9 @@ async function main(): Promise<void> {
     await stopBcv()
     await app.close()
     await queue.idle()
+    // Answers on their way finish before the process ends (Railway gives the old server time to drain).
+    await replies.idle(SHUTDOWN_ANSWERS_MS)
+    await salesAgent.drain(SHUTDOWN_ANSWERS_MS)
     await database.close()
     process.exit(0)
   }

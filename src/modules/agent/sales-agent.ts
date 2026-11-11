@@ -60,7 +60,10 @@ interface Context {
  * an order it took is in progress it only tells how that order is going and passes anything else on.
  */
 export class SalesAgent {
-  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
+  private readonly timers = new Map<string, { tenantId: string; timer: ReturnType<typeof setTimeout> }>()
+  /** One answer at a time per conversation; a message that arrives meanwhile is answered right after. */
+  private readonly running = new Map<string, Promise<void>>()
+  private readonly again = new Set<string>()
   private readonly now: () => Date
 
   constructor(
@@ -100,9 +103,14 @@ export class SalesAgent {
       // A just-placed order is answered with one message the server writes: how to pay it.
       const body = (intent.placed && paymentBody(intent.placed.quote)) || reply.text
       const draft = await withTenant(this.db, tenantId, async (scope) => {
+        await this.count(scope, reply.usage)
+        // The customer wrote again while the model was thinking: this answer missed that message, so
+        // it is dropped and the conversation is answered again with everything (never two answers).
+        // An order just placed or a hand-off already happened, so those always go out.
+        if (!intent.placed && !intent.handoff && (await this.latestInbound(scope, conversationId)) !== context.waMessageId) return null
         const answer = await this.store(scope, context.target, conversationId, botMessageId('sales-agent', context.waMessageId), body)
         if (intent.handoff) await this.handOff(scope, conversationId, intent.handoff)
-        await this.count(scope, reply.usage)
+        else await this.clearAgentError(scope, conversationId)
         return answer
       })
       if (draft) await this.delivery.deliver(tenantId, draft)
@@ -141,15 +149,90 @@ export class SalesAgent {
     return externalCatalog(lookup.catalog, useSystemRate ? { from: 'system' } : { from: 'company', bsPerUsd: companyRate })
   }
 
+  /**
+   * After a restart (a deploy): the customer messages of the last minutes that got no answer are
+   * answered now. The waiting time before answering lives in memory, so a restart would lose them.
+   */
+  async resumePending(): Promise<number> {
+    if (!this.model) return 0
+    const since = new Date(this.now().getTime() - FRESH_MS)
+    const result = await this.db.execute(sql`
+      select distinct m.tenant_id, m.conversation_id
+      from ${messages} m
+      join ${tenants} t on t.id = m.tenant_id and t.status = 'active'
+      where m.direction = 'in' and m.created_at > ${since}
+        and not exists (
+          select 1 from ${messages} later
+          where later.tenant_id = m.tenant_id and later.conversation_id = m.conversation_id and later.id > m.id
+        )`)
+    // postgres-js answers the rows; PGlite (tests) an object with them.
+    const waiting = (Array.isArray(result) ? result : (result as { rows: unknown[] }).rows) as { tenant_id: string; conversation_id: string }[]
+    let resumed = 0
+    for (const row of waiting) {
+      const on = await withTenant(this.db, row.tenant_id, (scope) => this.isOn(scope, this.now()))
+      if (!on) continue
+      this.schedule(row.tenant_id, row.conversation_id)
+      resumed++
+    }
+    return resumed
+  }
+
+  /**
+   * Before the server stops: whatever was waiting is answered now, and the answers on their way get
+   * up to `timeoutMs` to finish (Gemini can take 20-30 s), so a deploy does not leave customers unanswered.
+   */
+  async drain(timeoutMs: number): Promise<void> {
+    for (const [conversationId, { tenantId, timer }] of this.timers) {
+      clearTimeout(timer)
+      this.timers.delete(conversationId)
+      this.run(tenantId, conversationId)
+    }
+    let expired = false
+    const deadline = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs).unref()).then(() => {
+      expired = true
+    })
+    while (this.running.size && !expired) await Promise.race([Promise.all(this.running.values()), deadline])
+  }
+
   private schedule(tenantId: string, conversationId: string): void {
-    clearTimeout(this.timers.get(conversationId))
-    this.timers.set(
-      conversationId,
-      setTimeout(() => {
-        this.timers.delete(conversationId)
-        void this.answer(tenantId, conversationId)
-      }, this.options.debounceMs),
-    )
+    clearTimeout(this.timers.get(conversationId)?.timer)
+    const timer = setTimeout(() => {
+      this.timers.delete(conversationId)
+      this.run(tenantId, conversationId)
+    }, this.options.debounceMs)
+    this.timers.set(conversationId, { tenantId, timer })
+  }
+
+  /** Answers now, unless an answer is already on its way there: then once more right after it. */
+  private run(tenantId: string, conversationId: string): void {
+    if (this.running.has(conversationId)) {
+      this.again.add(conversationId)
+      return
+    }
+    const job = this.answer(tenantId, conversationId).finally(() => {
+      this.running.delete(conversationId)
+      if (this.again.delete(conversationId)) this.run(tenantId, conversationId)
+    })
+    this.running.set(conversationId, job)
+  }
+
+  /** The newest customer message of the conversation (its WhatsApp id). */
+  private async latestInbound(scope: TenantScope, conversationId: string): Promise<string | null> {
+    const [row] = await scope.tx
+      .select({ waMessageId: messages.waMessageId })
+      .from(messages)
+      .where(and(eq(messages.tenantId, scope.tenantId), eq(messages.conversationId, conversationId), eq(messages.direction, 'in')))
+      .orderBy(desc(messages.id))
+      .limit(1)
+    return row?.waMessageId ?? null
+  }
+
+  /** Answering again ends a hand-off that only happened because the model failed for a moment. */
+  private async clearAgentError(scope: TenantScope, conversationId: string): Promise<void> {
+    await scope.tx
+      .update(conversations)
+      .set({ handoffAt: null, handoffReason: null })
+      .where(and(eq(conversations.tenantId, scope.tenantId), eq(conversations.id, conversationId), eq(conversations.handoffReason, 'agent_error')))
   }
 
   private async isOn(scope: TenantScope, at: Date): Promise<boolean> {
@@ -166,13 +249,15 @@ export class SalesAgent {
   private async context(scope: TenantScope, conversationId: string): Promise<Context | null> {
     const { tx, tenantId } = scope
     const [conversation] = await tx
-      .select({ handoffReason: conversations.handoffReason, status: conversations.status })
+      .select({ handoffReason: conversations.handoffReason, handoffAt: conversations.handoffAt, status: conversations.status })
       .from(conversations)
       .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
     if (!conversation || conversation.status !== 'open') return null
-    // Handed off for an order it took, it still tells how the order is going; for anything else it is quiet.
+    // Handed off for an order it took, it still tells how the order is going; for anything else it is
+    // quiet. A hand-off because the model failed for a moment is retried when the customer writes again.
     const followUp = conversation.handoffReason === 'order_placed'
-    if (conversation.handoffReason && !followUp) return null
+    const retrying = conversation.handoffReason === 'agent_error'
+    if (conversation.handoffReason && !followUp && !retrying) return null
     const [assigned] = await tx
       .select({ userId: conversationAssignees.userId })
       .from(conversationAssignees)
@@ -189,6 +274,7 @@ export class SalesAgent {
     const last = recent[0]
     // Only a customer message waiting for an answer; and never over a person who just wrote.
     if (!last || last.direction !== 'in' || !last.waMessageId) return null
+    if (retrying && (!conversation.handoffAt || last.createdAt <= conversation.handoffAt)) return null
     const teamSince = new Date(this.now().getTime() - TEAM_ACTIVE_MS)
     if (recent.some((m) => m.author === 'staff' && m.createdAt > teamSince)) return null
 

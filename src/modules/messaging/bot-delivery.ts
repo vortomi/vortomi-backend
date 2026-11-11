@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from 'fastify'
 import { createHash } from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
 import type { Database, Executor } from '../../db/client.ts'
@@ -61,6 +62,8 @@ export class BotDelivery {
     private readonly credentials: ChannelCredentials,
     private readonly sender: WhatsAppSender,
     private readonly typing: TypingIndicator | null = null,
+    /** Where a refused send is told (the reason is also kept on the message for the panel). */
+    private readonly log: Pick<FastifyBaseLogger, 'warn'> | null = null,
   ) {}
 
   /** "escribiendo…" for the customer while the answer is prepared. Best effort: never throws. */
@@ -85,6 +88,7 @@ export class BotDelivery {
     } catch (error) {
       result = { error: describeSendError(error) }
     }
+    if ('error' in result) this.log?.warn({ tenantId, messageId: draft.messageId, reason: result.error }, 'Automatic message not sent')
     await withTenant(this.db, tenantId, ({ tx }) =>
       tx
         .update(messages)

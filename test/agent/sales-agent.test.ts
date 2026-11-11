@@ -221,3 +221,58 @@ describe('staying quiet where a person is in charge', () => {
     expect(model.requests).toHaveLength(0)
   })
 })
+
+describe('never losing or doubling an answer', () => {
+  it('after a moment of failure, the next customer message is answered and the hand-off lifted', async () => {
+    const from = '584121000020'
+    const { conversationId } = await customerWrites(from)
+    model.failWith = new ModelBusyError('503 overloaded')
+    await agentWith(model).answer(a.tenantId, conversationId)
+    expect(await handoff(conversationId)).toBe('agent_error')
+    // Nothing new from the customer: still quiet.
+    model.failWith = null
+    await agentWith(model).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toEqual([])
+    await customerWrites(from, '¿Hola? ¿Siguen ahí?')
+    await agentWith(model).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toEqual([{ body: model.answer }])
+    expect(await handoff(conversationId)).toBeNull()
+  })
+
+  it('a message that arrives while the model thinks drops the old answer: one answer, with everything', async () => {
+    const from = '584121000021'
+    const { conversationId } = await customerWrites(from, 'Quiero pastillas de freno')
+    let interrupted = false
+    const thinking: ChatModel = {
+      reply: async (request) => {
+        if (!interrupted) {
+          interrupted = true
+          await customerWrites(from, 'y también líquido de frenos')
+        }
+        return model.reply(request)
+      },
+    }
+    await agentWith(thinking).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toEqual([])
+    await agentWith(thinking).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toHaveLength(1)
+    expect(model.requests.at(-1)!.history.map((turn) => turn.text)).toEqual(['Quiero pastillas de freno', 'y también líquido de frenos'])
+  })
+
+  it('on shutdown, a pending answer goes out at once instead of being lost', async () => {
+    const { conversationId, waMessageId } = await customerWrites('584121000022')
+    const agent = agentWith(model)
+    expect(await agent.takes(a.tenantId, { conversationId, waMessageId, timestamp: NOW })).toBe(true)
+    expect(await botMessages(conversationId)).toEqual([])
+    await agent.drain(5_000)
+    expect(await botMessages(conversationId)).toEqual([{ body: model.answer }])
+  })
+
+  it('after a restart, the messages left unanswered in the last minutes are answered', async () => {
+    const { conversationId } = await customerWrites('584121000023')
+    const restarted = agentWith(model)
+    expect(await restarted.resumePending()).toBeGreaterThan(0)
+    await restarted.drain(5_000)
+    expect(await botMessages(conversationId)).toEqual([{ body: model.answer }])
+  })
+})

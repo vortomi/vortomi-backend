@@ -1,5 +1,5 @@
 import { type SQL, and, desc, eq, exists, ilike, lt, or, sql } from 'drizzle-orm'
-import { contactTags, contacts, conversations, messageDeliveryStatus, messages } from '../../db/schema/index.ts'
+import { contactTags, contacts, conversations, messageStatusEvents, messages } from '../../db/schema/index.ts'
 import type { DeliveryStatus, MessageType } from '../../db/schema/enums.ts'
 import { type Cursor, encodeCursor, likePattern } from '../../shared/pagination.ts'
 import type { MemberScope } from '../access/member-scope.ts'
@@ -119,17 +119,20 @@ export class ConversationQueries {
         createdAt: messages.createdAt,
         clientMessageId: messages.clientMessageId,
         // Furthest status Meta reported; before that, failed (never reached Meta) or pending.
+        // Looked up per message of the page through the (tenant, message, status) key: joining the
+        // message_delivery_status view would sort every status of the company on each load. The outer
+        // columns are qualified by hand: unqualified, they would be read from e itself.
         status: sql<DeliveryState | null>`case
           when ${messages.direction} = 'in' then null
-          when ${messageDeliveryStatus.status} is not null then ${messageDeliveryStatus.status}
-          when ${messages.sendError} is not null then 'failed'
-          else 'pending' end`,
+          else coalesce(
+            (select e.status from ${messageStatusEvents} e
+              where e.tenant_id = ${messages}.tenant_id and e.wa_message_id = ${messages}.wa_message_id
+              order by case e.status when 'failed' then 4 when 'read' then 3 when 'delivered' then 2 when 'sent' then 1 else 0 end desc
+              limit 1),
+            case when ${messages.sendError} is not null then 'failed' else 'pending' end)
+          end`,
       })
       .from(messages)
-      .leftJoin(
-        messageDeliveryStatus,
-        and(eq(messageDeliveryStatus.tenantId, messages.tenantId), eq(messageDeliveryStatus.waMessageId, messages.waMessageId)),
-      )
       .where(and(eq(messages.tenantId, scope.tenantId), eq(messages.conversationId, conversationId), beforeId ? lt(messages.id, beforeId) : undefined))
       .orderBy(desc(messages.id))
       .limit(limit + 1)

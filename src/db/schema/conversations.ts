@@ -169,6 +169,10 @@ export const messages = pgTable(
       foreignColumns: [messageTemplates.tenantId, messageTemplates.id],
     }),
     index('messages_conversation_created_idx').on(t.tenantId, t.conversationId, t.createdAt),
+    // The chat history and the agent page by id, newest first.
+    index('messages_conversation_id_idx').on(t.tenantId, t.conversationId, t.id),
+    // Reports count the customers' messages by day.
+    index('messages_tenant_inbound_created_idx').on(t.tenantId, t.createdAt).where(sql`${t.direction} = 'in'`),
     check('messages_direction_check', oneOf(t.direction, MESSAGE_DIRECTIONS)),
     check('messages_author_check', oneOf(t.author, MESSAGE_AUTHORS)),
     check('messages_type_check', oneOf(t.type, MESSAGE_TYPES)),
@@ -200,6 +204,8 @@ export const messageStatusEvents = pgTable(
   (t) => [
     // Meta resends statuses: the same one twice is stored once.
     unique('message_status_events_dedup_key').on(t.tenantId, t.waMessageId, t.status),
+    // Usage counts what was sent each month.
+    index('message_status_events_sent_idx').on(t.tenantId, t.occurredAt).where(sql`${t.status} = 'sent'`),
     check('message_status_events_status_check', oneOf(t.status, DELIVERY_STATUSES)),
   ],
 )

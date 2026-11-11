@@ -47,6 +47,8 @@ export const orders = pgTable(
     unique('orders_tenant_source_key').on(t.tenantId, t.sourceKey),
     foreignKey({ name: 'orders_conversation_fk', columns: [t.tenantId, t.conversationId], foreignColumns: [conversations.tenantId, conversations.id] }),
     index('orders_tenant_created_idx').on(t.tenantId, t.createdAt),
+    // A conversation's orders, newest first: read on every agent answer and every receipt received.
+    index('orders_conversation_created_idx').on(t.tenantId, t.conversationId, t.createdAt),
     check('orders_status_check', oneOf(t.status, ORDER_STATUSES)),
     check('orders_fulfillment_check', oneOf(t.fulfillment, FULFILLMENTS)),
     foreignKey({ name: 'orders_payment_method_fk', columns: [t.tenantId, t.paymentMethodId], foreignColumns: [paymentMethods.tenantId, paymentMethods.id] }),

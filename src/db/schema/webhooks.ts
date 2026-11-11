@@ -24,6 +24,8 @@ export const webhookEvents = pgTable(
   (t) => [
     // Only unprocessed rows are ever scanned by the recovery sweep.
     index('webhook_events_pending_idx').on(t.receivedAt).where(sql`${t.processedAt} is null`),
+    // The monthly purge of processed webhooks.
+    index('webhook_events_processed_idx').on(t.processedAt).where(sql`${t.processedAt} is not null`),
     check('webhook_events_attempts_check', sql`${t.attempts} >= 0`),
   ],
 )

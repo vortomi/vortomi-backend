@@ -7,6 +7,8 @@ export interface InboxOptions {
   /** Only events older than this are swept, so fresh ones are not picked twice. */
   sweepGraceMs: number
   sweepBatchSize: number
+  /** Base wait between failed attempts, growing ×4 each time; 0 retries at every sweep. */
+  retryBackoffMs?: number
 }
 
 /**
@@ -29,7 +31,7 @@ export class WebhookInbox {
 
   async sweep(): Promise<number> {
     const olderThan = new Date(this.now().getTime() - this.options.sweepGraceMs)
-    const ids = await this.repository.findPendingIds(olderThan, this.options.maxAttempts, this.options.sweepBatchSize)
+    const ids = await this.repository.findPendingIds(olderThan, this.options.maxAttempts, this.options.sweepBatchSize, this.options.retryBackoffMs ?? 0)
     return ids.filter((id) => this.queue.push(id)).length
   }
 }

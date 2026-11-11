@@ -15,6 +15,10 @@ export interface TenantScope {
   readonly [scopeBrand]: true
 }
 
+/** Longest a single query of a company may run, and a transaction may sit idle (ms, as Postgres takes them). */
+const STATEMENT_TIMEOUT = '20000'
+const IDLE_IN_TRANSACTION_TIMEOUT = '60000'
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export class InvalidTenantIdError extends Error {
@@ -34,7 +38,11 @@ export class InvalidTenantIdError extends Error {
 export async function withTenant<T>(db: Database, tenantId: string, work: (scope: TenantScope) => Promise<T>): Promise<T> {
   if (!UUID.test(tenantId)) throw new InvalidTenantIdError()
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`)
+    // Same round trip: the company, and limits so a stuck query or transaction cannot hold one of
+    // the pool's few connections (the panel, webhooks and the agent share them).
+    await tx.execute(
+      sql`select set_config('app.tenant_id', ${tenantId}, true), set_config('statement_timeout', ${STATEMENT_TIMEOUT}, true), set_config('idle_in_transaction_session_timeout', ${IDLE_IN_TRANSACTION_TIMEOUT}, true)`,
+    )
     await tx.execute(sql`set local role tenant_scoped`)
     return work({ tenantId, tx } as TenantScope)
   })

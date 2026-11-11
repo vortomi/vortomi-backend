@@ -35,7 +35,11 @@ export interface ChatModel {
 
 /** The provider said no for now (quota or rate limit): a person should answer this one. */
 export class ModelBusyError extends Error {
-  constructor(detail: string) {
+  constructor(
+    detail: string,
+    /** How long the model asked to wait before trying again, when it said. */
+    readonly retryAfterMs: number | null = null,
+  ) {
     super(`Model unavailable for now: ${detail}`)
     this.name = 'ModelBusyError'
   }

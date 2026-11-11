@@ -22,6 +22,9 @@ import { InboxFeed } from '../../src/modules/realtime/inbox-feed.ts'
 import { testVerifier } from './auth.ts'
 import { APP_SECRET, VERIFY_TOKEN } from './meta-payloads.ts'
 
+/** Ids never repeat across senders of a test file: Meta's ids are unique, and messages keep them. */
+let sentCounter = 0
+
 /** Stands in for Meta: records every message and answers what the test tells it to. */
 export class FakeSender implements WhatsAppSender {
   readonly sent: (TextMessage | TemplateMessage | ImageMessage)[] = []
@@ -43,7 +46,7 @@ export class FakeSender implements WhatsAppSender {
     this.sent.push(message)
     const answer = this.next
     this.next = null
-    return answer ? answer() : Promise.resolve({ waMessageId: `wamid.out.${this.sent.length}` })
+    return answer ? answer() : Promise.resolve({ waMessageId: `wamid.out.${++sentCounter}` })
   }
 }
 

@@ -4,7 +4,11 @@ const API = 'https://generativelanguage.googleapis.com/v1beta/models'
 /** Model turns that may call tools before the agent must have answered. */
 const MAX_ROUNDS = 4
 // The free tier takes 20-30 s per call (measured 29 Oct 2026); paid answers in seconds.
-const TIMEOUT_MS = 90_000
+const TIMEOUT_MS = 60_000
+/** Waits before trying again a call that failed for a moment (busy, overloaded, slow, network). */
+const RETRY_DELAYS_MS = [2_000, 6_000]
+/** Gemini's own "try again in N s" is followed up to this long. */
+const MAX_RETRY_AFTER_MS = 15_000
 
 /** A Gemini content: kept as the API returns it, so whatever it carries (thought signatures) goes back intact. */
 interface Content {
@@ -32,6 +36,7 @@ export class GeminiModel implements ChatModel {
     private readonly apiKey: string,
     private readonly model: string,
     private readonly fetchFn: typeof fetch = fetch,
+    private readonly retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
   ) {}
 
   async reply(request: ChatRequest): Promise<ChatReply> {
@@ -58,7 +63,24 @@ export class GeminiModel implements ChatModel {
     throw new Error(`Gemini kept calling tools after ${MAX_ROUNDS} rounds`)
   }
 
+  /**
+   * One model call, tried again when it failed only for a moment (busy, overloaded, too slow or the
+   * network): a customer should not be passed to a person because Gemini hiccupped once.
+   */
   private async generate(system: string, contents: Content[], tools: AgentTool[]): Promise<GenerateResponse> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.call(system, contents, tools)
+      } catch (error) {
+        const delay = this.retryDelaysMs[attempt]
+        if (delay === undefined || !passing(error)) throw error
+        // Gemini's own "try again in N s" wins, within limits (at most 10 times our own wait, and 15 s).
+        await sleep(error instanceof ModelBusyError && error.retryAfterMs ? Math.min(error.retryAfterMs, MAX_RETRY_AFTER_MS, Math.max(delay, 1) * 10) : delay)
+      }
+    }
+  }
+
+  private async call(system: string, contents: Content[], tools: AgentTool[]): Promise<GenerateResponse> {
     const response = await this.fetchFn(`${API}/${encodeURIComponent(this.model)}:generateContent`, {
       method: 'POST',
       // The key goes in a header, never in the URL (it would end up in logs).
@@ -71,11 +93,23 @@ export class GeminiModel implements ChatModel {
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })
-    if (response.status === 429 || response.status === 503) throw new ModelBusyError(`${response.status} ${await errorMessage(response)}`)
+    if (response.status === 429 || response.status === 500 || response.status === 503) {
+      const retryAfter = Number(response.headers.get('retry-after'))
+      throw new ModelBusyError(`${response.status} ${await errorMessage(response)}`, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : null)
+    }
     if (!response.ok) throw new Error(`Gemini ${response.status}: ${await errorMessage(response)}`)
     return (await response.json()) as GenerateResponse
   }
 }
+
+/** A failure worth one more try: the model busy, a timeout or the network; never a refused request. */
+function passing(error: unknown): boolean {
+  if (error instanceof ModelBusyError) return true
+  if (!(error instanceof Error)) return false
+  return error.name === 'TimeoutError' || error.name === 'AbortError' || (error.name === 'TypeError' && error.message.includes('fetch'))
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 /** Customer and business turns as Gemini wants them: starting with the customer, alternating. */
 function toContents(history: ChatRequest['history']): Content[] {

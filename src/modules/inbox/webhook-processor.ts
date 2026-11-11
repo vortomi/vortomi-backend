@@ -23,6 +23,8 @@ export class WebhookProcessor {
     private readonly parse: (payload: unknown) => ParseResult,
     private readonly handler: WhatsAppEventHandler,
     private readonly log: ProcessorLogger,
+    /** After this many failed attempts the sweep gives up on an event: that is said loudly. */
+    private readonly maxAttempts = Infinity,
   ) {}
 
   async process(webhookEventId: number): Promise<void> {
@@ -46,7 +48,9 @@ export class WebhookProcessor {
     }
 
     if (failures.length > 0) {
-      await this.repository.markFailed(webhookEventId, failures.join('; '))
+      const attempts = await this.repository.markFailed(webhookEventId, failures.join('; '))
+      // Nobody retries it any more: customer messages in it may be missing from the inbox.
+      if (attempts >= this.maxAttempts) this.log.error({ webhookEventId, attempts, failures }, 'Webhook event abandoned after its last attempt')
       return
     }
 
