@@ -89,7 +89,7 @@ async function main(): Promise<void> {
     {
       db,
       verifyToken: env.WEBHOOK_VERIFY_TOKEN,
-      appSecret: env.META_APP_SECRET,
+      appSecrets: [env.META_APP_SECRET, ...env.META_ADDITIONAL_APP_SECRETS],
       tokenVerifier: new SupabaseTokenVerifier(env.SUPABASE_URL),
       credentials,
       sender: cloudApi,

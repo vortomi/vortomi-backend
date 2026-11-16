@@ -23,8 +23,15 @@ const envSchema = z.object({
   CREDENTIALS_ENCRYPTION_KEY: z.base64().refine((value) => Buffer.from(value, 'base64').length === 32, '32 bytes, base64'),
   GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/).default('v26.0'),
 
-  // One app, one webhook endpoint for every company: these two are platform secrets.
+  // One webhook endpoint for every company: these are platform secrets.
   META_APP_SECRET: z.string().min(16),
+  // Secrets of other Meta apps of the platform that share the webhook (e.g. the published app
+  // while numbers still live on the test one). Comma-separated; empty or unset when there is one app.
+  META_ADDITIONAL_APP_SECRETS: z
+    .string()
+    .default('')
+    .transform((value) => value.split(',').map((secret) => secret.trim()).filter(Boolean))
+    .pipe(z.array(z.string().min(16)).max(4)),
   // Invented by us and typed into Meta when subscribing the webhook.
   WEBHOOK_VERIFY_TOKEN: z.string().min(24),
 

@@ -9,7 +9,8 @@ declare module 'fastify' {
 
 export interface WebhookRoutesOptions {
   verifyToken: string
-  appSecret: string
+  /** Secrets of the Meta apps whose webhooks this endpoint takes (one per app, at least one). */
+  appSecrets: readonly string[]
   /** Must persist the payload before resolving: Meta gets its 200 right after. */
   onVerifiedPayload: (payload: unknown) => Promise<void>
 }
@@ -58,7 +59,7 @@ export const webhookRoutes: FastifyPluginCallback<WebhookRoutesOptions> = (app, 
     const header = Array.isArray(signature) ? undefined : signature
 
     // An unverified webhook would let anyone inject fake customer messages.
-    if (!request.rawBody || !verifyMetaSignature(request.rawBody, header, options.appSecret)) {
+    if (!request.rawBody || !verifyMetaSignature(request.rawBody, header, options.appSecrets)) {
       request.log.warn('Rejected webhook with a missing or invalid signature')
       return reply.code(401).send()
     }

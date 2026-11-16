@@ -97,7 +97,7 @@ export function buildTestApp(db: Database, overrides: Partial<AppDependencies> =
     {
       db,
       verifyToken: VERIFY_TOKEN,
-      appSecret: APP_SECRET,
+      appSecrets: [APP_SECRET],
       onVerifiedPayload: () => Promise.resolve(),
       tokenVerifier: testVerifier(),
       credentials: testCredentials(db),

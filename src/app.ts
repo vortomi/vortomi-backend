@@ -13,7 +13,7 @@ import { webhookRoutes } from './modules/whatsapp/webhook.routes.ts'
 export interface AppDependencies {
   db: Database
   verifyToken: string
-  appSecret: string
+  appSecrets: readonly string[]
   onVerifiedPayload: (payload: unknown) => Promise<void>
   tokenVerifier: AccessTokenVerifier
   credentials: ChannelCredentials
@@ -64,7 +64,7 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
   await app.register(webhookRoutes, {
     prefix: '/webhooks/whatsapp',
     verifyToken: deps.verifyToken,
-    appSecret: deps.appSecret,
+    appSecrets: deps.appSecrets,
     onVerifiedPayload: deps.onVerifiedPayload,
   })
 
