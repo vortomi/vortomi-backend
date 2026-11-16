@@ -74,3 +74,35 @@ describe('CloudApiClient.sendImage', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('CloudApiClient: connecting a number (Embedded Signup)', () => {
+  it('reads whether the number lives on the WhatsApp Business app', async () => {
+    const { client, fetchFn } = clientReturning(200, { display_phone_number: '+58 412-555-0111', verified_name: 'Corteza', is_on_biz_app: true })
+    await expect(client.numberDetails('123', TOKEN)).resolves.toEqual({ displayNumber: '+58 412-555-0111', verifiedName: 'Corteza', onBusinessApp: true })
+    expect(fetchFn.mock.calls[0]![0]).toBe('https://graph.facebook.com/v25.0/123?fields=display_phone_number,verified_name,is_on_biz_app')
+  })
+
+  it('registers a new number with its 6-digit PIN and refuses anything else as PIN', async () => {
+    const { client, fetchFn } = clientReturning(200, { success: true })
+    await client.registerNumber('123', TOKEN, '048213')
+    const [url, init] = fetchFn.mock.calls[0]!
+    expect(url).toBe('https://graph.facebook.com/v25.0/123/register')
+    expect(JSON.parse(init?.body as string)).toEqual({ messaging_product: 'whatsapp', pin: '048213' })
+    await expect(client.registerNumber('123', TOKEN, '12345')).rejects.toBeInstanceOf(WhatsAppApiError)
+    expect(fetchFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks for the contacts and the history of the owner\'s app', async () => {
+    const { client, fetchFn } = clientReturning(200, { messaging_product: 'whatsapp', request_id: 'r1' })
+    await client.requestAppDataSync('123', TOKEN, 'history')
+    const [url, init] = fetchFn.mock.calls[0]!
+    expect(url).toBe('https://graph.facebook.com/v25.0/123/smb_app_data')
+    expect(JSON.parse(init?.body as string)).toEqual({ messaging_product: 'whatsapp', sync_type: 'history' })
+  })
+
+  it('ids that are not digits never reach Meta', async () => {
+    const { client, fetchFn } = clientReturning(200, {})
+    await expect(client.numberDetails('123/../me', TOKEN)).rejects.toThrow('Invalid Graph API path')
+    expect(fetchFn).not.toHaveBeenCalled()
+  })
+})

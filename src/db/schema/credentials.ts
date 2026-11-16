@@ -15,6 +15,9 @@ export const channelCredentials = pgTable(
     channelAccountId: uuid('channel_account_id').primaryKey(),
     tenantId: tenantIdColumn(),
     encryptedAccessToken: text('encrypted_access_token').notNull(),
+    // The number's two-step verification PIN, encrypted the same way: set when Vortomi registered a
+    // new number on Cloud API (not one coming from the WhatsApp Business app, already registered).
+    encryptedTwoStepPin: text('encrypted_two_step_pin'),
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   (t) => [

@@ -69,11 +69,27 @@ export interface WabaNumber {
   nameStatus: string
 }
 
+/** One number as Meta describes it, with whether it also lives on the WhatsApp Business app. */
+export interface NumberDetails {
+  displayNumber: string
+  verifiedName: string
+  /** Coexistence: the owner keeps using it on the WhatsApp Business app. */
+  onBusinessApp: boolean
+}
+
+/** What the WhatsApp Business app shares once, right after coexistence onboarding (within 24 h). */
+export type AppDataSync = 'smb_app_state_sync' | 'history'
+
 /** Port for connecting a company's account: read its numbers and receive its events. */
 export interface WabaDirectory {
   listNumbers(wabaId: string, accessToken: string): Promise<WabaNumber[]>
   /** Subscribes our app to the account's webhooks, so its messages reach us. */
   subscribeApp(wabaId: string, accessToken: string): Promise<void>
+  numberDetails(phoneNumberId: string, accessToken: string): Promise<NumberDetails>
+  /** Puts a new number on Cloud API with its two-step verification PIN (6 digits). */
+  registerNumber(phoneNumberId: string, accessToken: string, pin: string): Promise<void>
+  /** Asks Meta to send, by webhook, the contacts or the chat history of the owner's app. */
+  requestAppDataSync(phoneNumberId: string, accessToken: string, kind: AppDataSync): Promise<void>
 }
 
 /** Port for managing templates in a WhatsApp Business Account. */
@@ -98,6 +114,12 @@ const errorResponseSchema = z.object({
   error: z.object({ message: z.string().optional(), code: z.number().optional() }),
 })
 
+const numberDetailsSchema = z.object({
+  display_phone_number: z.string(),
+  verified_name: z.string().default(''),
+  is_on_biz_app: z.boolean().default(false),
+})
+
 const numbersResponseSchema = z.object({
   data: z.array(
     z.object({
@@ -110,7 +132,8 @@ const numbersResponseSchema = z.object({
 })
 
 /** The only Graph paths this client calls. Ids are digits only: nothing can redirect a call elsewhere. */
-const ALLOWED_PATHS = /^\d+(\/(messages|media|message_templates|subscribed_apps|phone_numbers\?fields=id,display_phone_number,verified_name,name_status))?$/
+const ALLOWED_PATHS =
+  /^\d+(\?fields=display_phone_number,verified_name,is_on_biz_app|\/(messages|media|message_templates|subscribed_apps|register|smb_app_data|phone_numbers\?fields=id,display_phone_number,verified_name,name_status))?$/
 
 /** Where Meta serves media files from: nothing else is ever fetched with the number's token. */
 const MEDIA_HOSTS = /(^|\.)(fbsbx\.com|facebook\.com|whatsapp\.net|fbcdn\.net)$/
@@ -198,6 +221,22 @@ export class CloudApiClient implements WhatsAppSender, TypingIndicator, MediaDow
 
   async subscribeApp(wabaId: string, accessToken: string): Promise<void> {
     await this.request('POST', `${wabaId}/subscribed_apps`, accessToken, {})
+  }
+
+  async numberDetails(phoneNumberId: string, accessToken: string): Promise<NumberDetails> {
+    const json = await this.request('GET', `${phoneNumberId}?fields=display_phone_number,verified_name,is_on_biz_app`, accessToken)
+    const parsed = numberDetailsSchema.safeParse(json)
+    if (!parsed.success) throw new WhatsAppApiError('Cloud API returned no number details', null, null)
+    return { displayNumber: parsed.data.display_phone_number, verifiedName: parsed.data.verified_name, onBusinessApp: parsed.data.is_on_biz_app }
+  }
+
+  async registerNumber(phoneNumberId: string, accessToken: string, pin: string): Promise<void> {
+    if (!/^\d{6}$/.test(pin)) throw new WhatsAppApiError('The PIN must be 6 digits', null, null)
+    await this.post(`${phoneNumberId}/register`, accessToken, { messaging_product: 'whatsapp', pin })
+  }
+
+  async requestAppDataSync(phoneNumberId: string, accessToken: string, kind: AppDataSync): Promise<void> {
+    await this.post(`${phoneNumberId}/smb_app_data`, accessToken, { messaging_product: 'whatsapp', sync_type: kind })
   }
 
   private async sendMessage(phoneNumberId: string, accessToken: string, message: object): Promise<{ waMessageId: string }> {

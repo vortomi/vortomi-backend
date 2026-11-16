@@ -35,6 +35,14 @@ const envSchema = z.object({
   // Invented by us and typed into Meta when subscribing the webhook.
   WEBHOOK_VERIFY_TOKEN: z.string().min(24),
 
+  // «Conectar WhatsApp» (Meta's Embedded Signup): the published app a company connects its number
+  // to, and its Facebook Login for Business configuration. The id and configuration are public (the
+  // panel gets them); the secret only exchanges the code Meta hands the panel. All three or none:
+  // without them the button is not offered and numbers are connected from the console.
+  META_SIGNUP_APP_ID: z.string().regex(/^\d{5,25}$/).optional(),
+  META_SIGNUP_APP_SECRET: z.string().min(16).optional(),
+  META_SIGNUP_CONFIG_ID: z.string().regex(/^\d{5,25}$/).optional(),
+
   // How often the BCV rate is read for the companies that use it: 1 hour; 0 turns it off.
   BCV_CHECK_INTERVAL_MS: z.coerce.number().int().min(0).max(86_400_000).default(3_600_000),
 
@@ -45,7 +53,16 @@ const envSchema = z.object({
   AGENT_MODEL: z.string().regex(/^[a-z0-9.-]+$/).default('gemini-3.5-flash-lite'),
   // Answers per company and month; past it the conversations go to a person. 0 = no answers.
   AGENT_MONTHLY_REPLY_CAP: z.coerce.number().int().min(0).max(1_000_000).default(1000),
-})
+}).refine(
+  (env) => [env.META_SIGNUP_APP_ID, env.META_SIGNUP_APP_SECRET, env.META_SIGNUP_CONFIG_ID].filter(Boolean).length % 3 === 0,
+  { message: 'META_SIGNUP_APP_ID, META_SIGNUP_APP_SECRET and META_SIGNUP_CONFIG_ID go together', path: ['META_SIGNUP_APP_ID'] },
+)
+
+/** The Embedded Signup settings, when all three are set. */
+export function signupSettings(env: Env): { appId: string; appSecret: string; configId: string } | null {
+  const { META_SIGNUP_APP_ID: appId, META_SIGNUP_APP_SECRET: appSecret, META_SIGNUP_CONFIG_ID: configId } = env
+  return appId && appSecret && configId ? { appId, appSecret, configId } : null
+}
 
 export type Env = z.infer<typeof envSchema>
 

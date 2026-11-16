@@ -13,6 +13,8 @@ export function listChannels(scope: MemberScope) {
       phoneNumberId: channelAccounts.phoneNumberId,
       wabaId: channelAccounts.wabaId,
       status: channelAccounts.status,
+      coexistence: channelAccounts.coexistence,
+      tokenExpiresAt: channelAccounts.tokenExpiresAt,
     })
     .from(channelAccounts)
     .where(eq(channelAccounts.tenantId, scope.tenantId))

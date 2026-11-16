@@ -19,12 +19,22 @@ export class ChannelCredentials {
     return `channel-credential:${tenantId}:${channelAccountId}`
   }
 
-  async store(tenantId: string, channelAccountId: string, accessToken: string): Promise<void> {
+  /** The PIN gets its own context: one ciphertext can never be read as the other. */
+  private static pinContext(tenantId: string, channelAccountId: string): string {
+    return `channel-pin:${tenantId}:${channelAccountId}`
+  }
+
+  /** Keeps the token (and the number's PIN when Vortomi set one; an earlier PIN stays otherwise). */
+  async store(tenantId: string, channelAccountId: string, accessToken: string, twoStepPin?: string): Promise<void> {
     const encryptedAccessToken = this.cipher.encrypt(accessToken, ChannelCredentials.context(tenantId, channelAccountId))
+    const encryptedTwoStepPin = twoStepPin ? this.cipher.encrypt(twoStepPin, ChannelCredentials.pinContext(tenantId, channelAccountId)) : undefined
     await this.db
       .insert(channelCredentials)
-      .values({ tenantId, channelAccountId, encryptedAccessToken })
-      .onConflictDoUpdate({ target: channelCredentials.channelAccountId, set: { encryptedAccessToken, updatedAt: sql`now()` } })
+      .values({ tenantId, channelAccountId, encryptedAccessToken, ...(encryptedTwoStepPin ? { encryptedTwoStepPin } : {}) })
+      .onConflictDoUpdate({
+        target: channelCredentials.channelAccountId,
+        set: { encryptedAccessToken, ...(encryptedTwoStepPin ? { encryptedTwoStepPin } : {}), updatedAt: sql`now()` },
+      })
   }
 
   /** Token of any number of that WhatsApp Business Account in this company (managing templates). */

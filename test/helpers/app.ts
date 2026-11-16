@@ -5,7 +5,9 @@ import type { Database } from '../../src/db/client.ts'
 import { ChannelCredentials } from '../../src/modules/channels/channel-credentials.ts'
 import { CredentialCipher } from '../../src/modules/channels/credential-cipher.ts'
 import {
+  type AppDataSync,
   type ImageMessage,
+  type NumberDetails,
   type TemplateMessage,
   type TemplateRegistry,
   type TemplateSubmission,
@@ -72,6 +74,27 @@ export class FakeWabaDirectory implements WabaDirectory {
 
   subscribeApp(wabaId: string): Promise<void> {
     this.subscribed.push(wabaId)
+    return Promise.resolve()
+  }
+
+  /** Numbers that also live on the owner's WhatsApp Business app (coexistence). */
+  readonly onBusinessApp = new Set<string>()
+  readonly registered: { phoneNumberId: string; pin: string }[] = []
+  readonly syncs: { phoneNumberId: string; kind: AppDataSync }[] = []
+
+  numberDetails(phoneNumberId: string): Promise<NumberDetails> {
+    const number = [...this.accounts.values()].flat().find((n) => n.phoneNumberId === phoneNumberId)
+    if (!number) return Promise.reject(new WhatsAppApiError('Unknown number', 400, 100))
+    return Promise.resolve({ displayNumber: number.displayNumber, verifiedName: number.verifiedName, onBusinessApp: this.onBusinessApp.has(phoneNumberId) })
+  }
+
+  registerNumber(phoneNumberId: string, _accessToken: string, pin: string): Promise<void> {
+    this.registered.push({ phoneNumberId, pin })
+    return Promise.resolve()
+  }
+
+  requestAppDataSync(phoneNumberId: string, _accessToken: string, kind: AppDataSync): Promise<void> {
+    this.syncs.push({ phoneNumberId, kind })
     return Promise.resolve()
   }
 }

@@ -17,6 +17,7 @@ import { UnknownBusinessTypeError } from '../modules/setup/setup-service.ts'
 import { NoChannelError, TenantNotFoundError, WabaTakenError } from '../modules/platform/tenant-admin-service.ts'
 import { MetaRefusedError, NumberNotInAccountError, NumberTakenError, TokenRequiredError } from '../modules/platform/channel-admin-service.ts'
 import { ChannelNotFoundError } from '../modules/team/channel-list.ts'
+import { SignupCodeRejectedError, SignupGrantMismatchError, SignupUnavailableError } from '../modules/channels/channel-signup-service.ts'
 import {
   AlreadyMemberError,
   InvitationEmailMismatchError,
@@ -66,6 +67,9 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [TokenRequiredError, 422, 'token_required'],
   [MetaRefusedError, 422, 'meta_refused'],
   [ChannelNotFoundError, 404, 'channel_not_found'],
+  [SignupUnavailableError, 409, 'signup_unavailable'],
+  [SignupCodeRejectedError, 422, 'signup_code_rejected'],
+  [SignupGrantMismatchError, 422, 'signup_grant_mismatch'],
   [InvitationNotFoundError, 404, 'invitation_not_found'],
   [InvitationExpiredError, 410, 'invitation_expired'],
   [InvitationEmailMismatchError, 403, 'invitation_email_mismatch'],

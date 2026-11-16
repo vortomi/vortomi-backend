@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, pgTable, text, unique, uniqueIndex } from 'drizzle-orm/pg-core'
+import { boolean, check, index, integer, pgTable, text, unique, uniqueIndex } from 'drizzle-orm/pg-core'
 import { createdAtColumn, oneOf, tenantIdColumn, timestamptz, uuidIdColumn } from './columns.ts'
 import { CHANNEL_STATUSES, SELLS, SELL_METHODS, TENANT_PLANS, TENANT_STATUSES } from './enums.ts'
 
@@ -75,6 +75,11 @@ export const channelAccounts = pgTable(
     displayNumber: text('display_number').notNull(),
     label: text('label').notNull(),
     status: text('status', { enum: CHANNEL_STATUSES }).notNull().default('connected'),
+    // Also on the owner's WhatsApp Business app (Meta's coexistence): the owner sees and answers there too.
+    coexistence: boolean('coexistence').notNull().default(false),
+    // When the stored token stops working (a number connected with «Conectar WhatsApp» gets a 60-day
+    // one); null when it does not expire or is not known. Not a secret: the panel warns before it.
+    tokenExpiresAt: timestamptz('token_expires_at'),
     createdAt: createdAtColumn(),
   },
   (t) => [

@@ -32,7 +32,7 @@ export class MetaRefusedError extends Error {
 }
 
 /** Meta's own refusals become a clear answer; anything else stays an error of ours. */
-async function fromMeta<T>(call: Promise<T>): Promise<T> {
+export async function fromMeta<T>(call: Promise<T>): Promise<T> {
   try {
     return await call
   } catch (error) {
@@ -103,7 +103,8 @@ export class ChannelAdminService {
 
     const [updated] = await this.db
       .update(channelAccounts)
-      .set({ wabaId: input.wabaId, phoneNumberId: input.phoneNumberId, displayNumber: number.displayNumber, status: 'connected' })
+      // A token typed in the console has no known expiry: an older one's date would warn for nothing.
+      .set({ wabaId: input.wabaId, phoneNumberId: input.phoneNumberId, displayNumber: number.displayNumber, status: 'connected', ...(input.accessToken ? { tokenExpiresAt: null } : {}) })
       .where(eq(channelAccounts.id, channel.id))
       .returning({ id: channelAccounts.id, displayNumber: channelAccounts.displayNumber })
     if (input.accessToken) await this.credentials.store(tenantId, channel.id, input.accessToken)

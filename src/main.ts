@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { LOG_REDACT_PATHS, buildApp, redactUrl } from './app.ts'
-import { loadEnv } from './config/env.ts'
+import { loadEnv, signupSettings } from './config/env.ts'
 import { createDatabase } from './db/client.ts'
 import { SupabaseTokenVerifier } from './modules/access/supabase-token-verifier.ts'
 import { ChannelCredentials } from './modules/channels/channel-credentials.ts'
@@ -28,6 +28,7 @@ import { InboxFeed } from './modules/realtime/inbox-feed.ts'
 import { ChannelDirectory } from './modules/tenancy/channel-directory.ts'
 import { CloudApiClient } from './modules/whatsapp/cloud-api.client.ts'
 import { TemplateService } from './modules/templates/template-service.ts'
+import { MetaOAuthClient } from './modules/whatsapp/meta-oauth.client.ts'
 import { parseWebhookPayload } from './modules/whatsapp/webhook-parser.ts'
 import { KeyedLanes } from './shared/keyed-lanes.ts'
 
@@ -66,6 +67,9 @@ async function main(): Promise<void> {
   const cipher = new CredentialCipher(env.CREDENTIALS_ENCRYPTION_KEY)
   const credentials = new ChannelCredentials(db, cipher)
   const cloudApi = new CloudApiClient(env.GRAPH_API_VERSION)
+  // «Conectar WhatsApp»: its app also signs the webhooks of the numbers connected through it.
+  const signup = signupSettings(env)
+  const appSecrets = [...new Set([env.META_APP_SECRET, ...env.META_ADDITIONAL_APP_SECRETS, ...(signup ? [signup.appSecret] : [])])]
   const feed = new InboxFeed()
   // Its logger is the app's: bound once the app exists (only used after listen()).
   const bcvLog = { warn: (message: string) => app.log.warn(message), error: (obj: object, message: string) => app.log.error(obj, message) }
@@ -89,7 +93,7 @@ async function main(): Promise<void> {
     {
       db,
       verifyToken: env.WEBHOOK_VERIFY_TOKEN,
-      appSecrets: [env.META_APP_SECRET, ...env.META_ADDITIONAL_APP_SECRETS],
+      appSecrets,
       tokenVerifier: new SupabaseTokenVerifier(env.SUPABASE_URL),
       credentials,
       sender: cloudApi,
@@ -99,6 +103,14 @@ async function main(): Promise<void> {
       bcv,
       catalogs,
       agent: { modelReady: Boolean(env.GEMINI_API_KEY), monthlyCap: env.AGENT_MONTHLY_REPLY_CAP },
+      ...(signup
+        ? {
+            signup: {
+              exchange: new MetaOAuthClient(env.GRAPH_API_VERSION, signup.appId, signup.appSecret),
+              launch: { appId: signup.appId, configId: signup.configId, graphVersion: env.GRAPH_API_VERSION },
+            },
+          }
+        : {}),
       onVerifiedPayload: async (payload) => {
         await inbox.receive(payload)
       },

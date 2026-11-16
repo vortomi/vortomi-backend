@@ -9,6 +9,8 @@ import type { BcvRateService } from './modules/exchange-rates/bcv-rate.service.t
 import type { InboxFeed } from './modules/realtime/inbox-feed.ts'
 import type { TemplateRegistry, WabaDirectory, WhatsAppSender } from './modules/whatsapp/cloud-api.client.ts'
 import { webhookRoutes } from './modules/whatsapp/webhook.routes.ts'
+import type { BusinessTokenExchange } from './modules/whatsapp/meta-oauth.client.ts'
+import type { SignupLaunch } from './modules/channels/channel-signup.routes.ts'
 
 export interface AppDependencies {
   db: Database
@@ -28,6 +30,8 @@ export interface AppDependencies {
   catalogs?: Pick<CatalogSources, 'systemRate'>
   /** Whether the sales agent has a model, and its monthly cap per company (defaults: none, 1000). */
   agent?: { modelReady: boolean; monthlyCap: number }
+  /** «Conectar WhatsApp» (Embedded Signup); without it the panel does not offer the button. */
+  signup?: { exchange: BusinessTokenExchange; launch: SignupLaunch }
 }
 
 /** Secrets and signatures must never reach the logs. */
@@ -83,6 +87,7 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     bcv: deps.bcv,
     ...(deps.catalogs ? { catalogs: deps.catalogs } : {}),
     agent: deps.agent ?? { modelReady: false, monthlyCap: 1000 },
+    ...(deps.signup ? { signup: deps.signup } : {}),
   })
 
   return app

@@ -58,6 +58,9 @@ import { orderRoutes } from '../modules/orders/orders.routes.ts'
 import { ReceiptSettingsService } from '../modules/sale-receipts/receipt-settings-service.ts'
 import { SaleReceiptService } from '../modules/sale-receipts/sale-receipt-service.ts'
 import { saleReceiptRoutes } from '../modules/sale-receipts/sale-receipts.routes.ts'
+import { ChannelSignupService } from '../modules/channels/channel-signup-service.ts'
+import { type SignupLaunch, channelSignupRoutes } from '../modules/channels/channel-signup.routes.ts'
+import type { BusinessTokenExchange } from '../modules/whatsapp/meta-oauth.client.ts'
 import { authenticate } from './authenticate.ts'
 import { toApiError } from './domain-errors.ts'
 import { installErrorHandler } from './errors.ts'
@@ -73,6 +76,7 @@ export interface ApiOptions {
   bcv: Pick<BcvRateService, 'refresh'>
   catalogs?: Pick<CatalogSources, 'systemRate'>
   agent: { modelReady: boolean; monthlyCap: number }
+  signup?: { exchange: BusinessTokenExchange; launch: SignupLaunch }
 }
 
 const COMPANY = '/tenants/:tenantId'
@@ -90,7 +94,7 @@ export const publicApiRoutes: FastifyPluginAsync<{ db: Database }> = async (app,
  * The panel's API (/api). Everything in here requires a verified Supabase session;
  * company data is only reached through inCompany() (membership + withTenant).
  */
-export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent }) => {
+export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent, signup }) => {
   installErrorHandler(app, toApiError)
   app.decorateRequest('identity', null)
   app.addHook('onRequest', authenticate(verifier))
@@ -127,6 +131,12 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   await app.register(reportsRoutes, { prefix: COMPANY, db, reports: new ReportService() })
   await app.register(exchangeRateRoutes, { prefix: COMPANY, db, rates: new ExchangeRateService(), bcv, ...(catalogs ? { catalogs } : {}) })
   await app.register(teamRoutes, { prefix: COMPANY, db, team: new TeamService(), invitations })
+  await app.register(channelSignupRoutes, {
+    prefix: COMPANY,
+    db,
+    signup: new ChannelSignupService(db, credentials, wabaDirectory, tenantAdmin, signup?.exchange ?? null, app.log),
+    launch: signup?.launch ?? null,
+  })
   await app.register(invitationRoutes, { invitations })
   await app.register(agentRoutes, { prefix: COMPANY, db, settings: new AgentSettingsService(agent.modelReady, agent.monthlyCap) })
   await app.register(deliveryRoutes, { prefix: COMPANY, db, delivery: new DeliveryService() })
