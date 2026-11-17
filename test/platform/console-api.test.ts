@@ -88,8 +88,34 @@ describe('signing up a company', () => {
     })
   })
 
+  it('says whether Meta verified the business, and that it does not know when Meta does not say', async () => {
+    const lookup = () => console_('POST', `/tenants/${tenantId}/channels/lookup`, { wabaId: '300000000000001', accessToken: TOKEN })
+    expect((await lookup()).json()).toMatchObject({ businessVerified: null })
+    waba.verification.set('300000000000001', 'pending')
+    expect((await lookup()).json()).toMatchObject({ businessVerified: false })
+    waba.verification.set('300000000000001', 'verified')
+    expect((await lookup()).json()).toMatchObject({ businessVerified: true })
+  })
+
+  it('tells why Meta refused instead of failing: unknown account, bad token, no permission', async () => {
+    const lookup = (wabaId: string) => console_('POST', `/tenants/${tenantId}/channels/lookup`, { wabaId, accessToken: TOKEN })
+    const unknown = await lookup('300000000000077')
+    expect(unknown.statusCode).toBe(422)
+    expect(unknown.json()).toEqual({ error: 'meta_refused' })
+    waba.refusals.set('300000000000078', 190)
+    expect((await lookup('300000000000078')).json()).toEqual({ error: 'meta_token_invalid' })
+    waba.refusals.set('300000000000079', 200)
+    expect((await lookup('300000000000079')).json()).toEqual({ error: 'meta_permission_denied' })
+  })
+
+  it('connects only a number Meta lists in that account', async () => {
+    const number = { wabaId: '300000000000001', accessToken: TOKEN, phoneNumberId: '400000000000555', label: 'Ventas' }
+    expect((await console_('POST', `/tenants/${tenantId}/channels`, number)).json()).toEqual({ error: 'number_not_in_account' })
+  })
+
   it('connects a number: token stored encrypted, app subscribed, company awaiting its test', async () => {
-    const number = { wabaId: '300000000000001', accessToken: TOKEN, phoneNumberId: '400000000000001', displayNumber: '+58 241-555-0101', label: 'Ventas' }
+    // A wrongly typed number is ignored: what is stored is how Meta shows it.
+    const number = { wabaId: '300000000000001', accessToken: TOKEN, phoneNumberId: '400000000000001', displayNumber: '+58 000-000-0000', label: 'Ventas' }
     const connected = await console_('POST', `/tenants/${tenantId}/channels`, number)
     expect(connected.statusCode).toBe(201)
     const body = connected.json<{ id: string; subscribed: boolean }>()
@@ -99,7 +125,7 @@ describe('signing up a company', () => {
     expect(JSON.stringify(stored)).not.toContain(TOKEN)
     const detail = (await console_('GET', `/tenants/${tenantId}`)).json<{ status: string; channels: Record<string, unknown>[] }>()
     expect(detail.status).toBe('awaiting_channel')
-    expect(detail.channels).toEqual([expect.objectContaining({ label: 'Ventas', hasToken: true })])
+    expect(detail.channels).toEqual([expect.objectContaining({ label: 'Ventas', hasToken: true, displayNumber: '+58 241-555-0101' })])
     expect(JSON.stringify(detail)).not.toContain(TOKEN)
 
     expect((await console_('POST', `/tenants/${tenantId}/channels`, { ...number, label: 'Otra' })).json()).toEqual({ error: 'phone_number_taken' })

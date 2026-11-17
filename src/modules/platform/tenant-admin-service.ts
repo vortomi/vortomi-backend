@@ -7,6 +7,7 @@ import { channelAccounts, channelCredentials, memberships, messages, tenants, us
 import type { ChannelCredentials } from '../channels/channel-credentials.ts'
 import type { InvitationService } from '../team/invitation-service.ts'
 import type { WabaDirectory } from '../whatsapp/cloud-api.client.ts'
+import { NumberNotInAccountError, fromMeta } from './channel-errors.ts'
 
 export class TenantNotFoundError extends Error {
   constructor() {
@@ -55,9 +56,9 @@ export const tenantStatusInput = z.object({ status: z.enum(['active', 'suspended
 
 const digits = z.string().trim().regex(/^\d{5,25}$/)
 export const lookupInput = z.object({ wabaId: digits, accessToken: z.string().trim().min(20).max(1024) })
+// How the number is shown comes from Meta when connecting; a typed one is ignored.
 export const channelInput = lookupInput.extend({
   phoneNumberId: digits,
-  displayNumber: z.string().trim().min(5).max(30),
   label: z.string().trim().min(1).max(40),
 })
 export type ChannelInput = z.infer<typeof channelInput>
@@ -173,11 +174,18 @@ export class TenantAdminService {
     await this.db.update(tenants).set({ status }).where(eq(tenants.id, tenantId))
   }
 
-  /** The numbers of an account, and whether each one is already in Vortomi (here or elsewhere). */
+  /**
+   * The numbers of an account, whether each one is already in Vortomi (here or elsewhere), and whether
+   * Meta verified the business that owns it (null: Meta did not say, and the console says so).
+   */
   async lookupNumbers(tenantId: string, wabaId: string, accessToken: string) {
     await this.tenant(tenantId)
     const owner = await this.wabaOwner(wabaId, tenantId)
-    const numbers = await this.waba.listNumbers(wabaId, accessToken)
+    const [numbers, verification] = await Promise.all([
+      fromMeta(this.waba.listNumbers(wabaId, accessToken)),
+      // Only informative: an account whose verification cannot be read is still found.
+      this.waba.businessVerification(wabaId, accessToken).catch(() => null),
+    ])
     const known = numbers.length
       ? await this.db
           .select({ phoneNumberId: channelAccounts.phoneNumberId, tenantId: channelAccounts.tenantId, tenantName: tenants.name })
@@ -187,6 +195,7 @@ export class TenantAdminService {
       : []
     return {
       wabaTakenBy: owner,
+      businessVerified: verification === null ? null : verification === 'verified',
       numbers: numbers.map((n) => {
         const taken = known.find((k) => k.phoneNumberId === n.phoneNumberId)
         return { ...n, takenBy: taken && taken.tenantId !== tenantId ? taken.tenantName : null, alreadyHere: taken?.tenantId === tenantId }
@@ -196,14 +205,17 @@ export class TenantAdminService {
 
   /**
    * Stores the number for the company with its token (encrypted), and subscribes our app to
-   * the account so its messages reach us. A draft moves to "awaiting the number test".
+   * the account so its messages reach us. Meta confirms the number is in that account and gives
+   * how it is shown; the typed one is not trusted. A draft moves to "awaiting the number test".
    */
   async connectChannel(tenantId: string, input: ChannelInput) {
     const tenant = await this.tenant(tenantId)
     if (await this.wabaOwner(input.wabaId, tenantId)) throw new WabaTakenError()
+    const number = (await fromMeta(this.waba.listNumbers(input.wabaId, input.accessToken))).find((n) => n.phoneNumberId === input.phoneNumberId)
+    if (!number) throw new NumberNotInAccountError()
     const [channel] = await this.db
       .insert(channelAccounts)
-      .values({ tenantId, wabaId: input.wabaId, phoneNumberId: input.phoneNumberId, displayNumber: input.displayNumber, label: input.label })
+      .values({ tenantId, wabaId: input.wabaId, phoneNumberId: input.phoneNumberId, displayNumber: number.displayNumber, label: input.label })
       .returning({ id: channelAccounts.id })
     await this.credentials.store(tenantId, channel!.id, input.accessToken)
     if (tenant.status === 'draft') await this.db.update(tenants).set({ status: 'awaiting_channel' }).where(eq(tenants.id, tenantId))

@@ -3,7 +3,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database } from '../../db/client.ts'
 import { channelAccounts } from '../../db/schema/index.ts'
-import { NumberNotInAccountError, NumberTakenError, fromMeta } from '../platform/channel-admin-service.ts'
+import { NumberNotInAccountError, NumberTakenError, fromMeta } from '../platform/channel-errors.ts'
 import { type TenantAdminService, WabaTakenError } from '../platform/tenant-admin-service.ts'
 import { type AppDataSync, type WabaDirectory, WhatsAppApiError } from '../whatsapp/cloud-api.client.ts'
 import type { BusinessTokenExchange } from '../whatsapp/meta-oauth.client.ts'
@@ -85,7 +85,7 @@ export class ChannelSignupService {
     const grant = await fromMeta(this.exchange.inspect(token))
     if (!grant.valid || grant.appId !== this.exchange.appId || !grant.wabaIds.includes(input.wabaId)) throw new SignupGrantMismatchError()
 
-    const found = await fromMeta(this.tenants.lookupNumbers(tenantId, input.wabaId, token))
+    const found = await this.tenants.lookupNumbers(tenantId, input.wabaId, token)
     if (found.wabaTakenBy) throw new WabaTakenError()
     const number = found.numbers.find((n) => n.phoneNumberId === input.phoneNumberId)
     if (!number) throw new NumberNotInAccountError()

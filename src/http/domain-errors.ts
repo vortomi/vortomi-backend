@@ -15,7 +15,8 @@ import { CustomFieldNotFoundError, FieldLimitError, InvalidCustomFieldError } fr
 import { InvalidCustomValueError } from '../modules/custom-fields/custom-values.ts'
 import { UnknownBusinessTypeError } from '../modules/setup/setup-service.ts'
 import { NoChannelError, TenantNotFoundError, WabaTakenError } from '../modules/platform/tenant-admin-service.ts'
-import { MetaRefusedError, NumberNotInAccountError, NumberTakenError, TokenRequiredError } from '../modules/platform/channel-admin-service.ts'
+import { TokenRequiredError } from '../modules/platform/channel-admin-service.ts'
+import { MetaRefusedError, NumberNotInAccountError, NumberTakenError } from '../modules/platform/channel-errors.ts'
 import { ChannelNotFoundError } from '../modules/team/channel-list.ts'
 import { SignupCodeRejectedError, SignupGrantMismatchError, SignupUnavailableError } from '../modules/channels/channel-signup-service.ts'
 import {
@@ -65,7 +66,6 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [NumberTakenError, 409, 'phone_number_taken'],
   [NumberNotInAccountError, 422, 'number_not_in_account'],
   [TokenRequiredError, 422, 'token_required'],
-  [MetaRefusedError, 422, 'meta_refused'],
   [ChannelNotFoundError, 404, 'channel_not_found'],
   [SignupUnavailableError, 409, 'signup_unavailable'],
   [SignupCodeRejectedError, 422, 'signup_code_rejected'],
@@ -151,6 +151,8 @@ const CONFLICT_CODES = new Set(['23505', '23503', '23514'])
 
 export function toApiError(error: unknown): ApiError | null {
   if (error instanceof ApiError) return error
+  // Why Meta refused is the code; Meta's own message goes to the server log only.
+  if (error instanceof MetaRefusedError) return new ApiError(422, error.code, error.message, error.detail)
   for (const [type, status, code] of DOMAIN_ERRORS) {
     if (error instanceof type) return new ApiError(status, code, error.message)
   }

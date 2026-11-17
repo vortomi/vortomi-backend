@@ -67,9 +67,21 @@ export class FakeWabaDirectory implements WabaDirectory {
   readonly accounts = new Map<string, WabaNumber[]>()
   readonly subscribed: string[] = []
 
+  /** Accounts for which Meta answers with this Graph error code (190 bad token, 200 no permission...). */
+  readonly refusals = new Map<string, number>()
+
   listNumbers(wabaId: string): Promise<WabaNumber[]> {
+    const refusal = this.refusals.get(wabaId)
+    if (refusal) return Promise.reject(new WhatsAppApiError('Cloud API rejected the request (400): refused', 400, refusal))
     const numbers = this.accounts.get(wabaId)
     return numbers ? Promise.resolve(numbers) : Promise.reject(new WhatsAppApiError('Unknown account', 400, 100))
+  }
+
+  /** Meta's business verification per account; an account without one answers null (Meta did not say). */
+  readonly verification = new Map<string, string>()
+
+  businessVerification(wabaId: string): Promise<string | null> {
+    return Promise.resolve(this.verification.get(wabaId) ?? null)
   }
 
   subscribeApp(wabaId: string): Promise<void> {

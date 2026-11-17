@@ -9,6 +9,8 @@ export class ApiError extends Error {
     readonly statusCode: 400 | 401 | 403 | 404 | 409 | 410 | 422,
     readonly code: string,
     message = code,
+    /** Why an outside service refused (its own words, no secrets): logged for us, never answered. */
+    readonly detail?: string,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -27,7 +29,10 @@ export const notFound = (code = 'not_found') => new ApiError(404, code)
 export function installErrorHandler(app: FastifyInstance, translate: (error: unknown) => ApiError | null): void {
   app.setErrorHandler((error: FastifyError, request, reply) => {
     const known = translate(error)
-    if (known) return reply.code(known.statusCode).send({ error: known.code })
+    if (known) {
+      if (known.detail) request.log.warn({ code: known.code, detail: known.detail }, 'Request refused by an outside service')
+      return reply.code(known.statusCode).send({ error: known.code })
+    }
     // Fastify's own client errors (bad JSON, body too large, wrong content type).
     if (error.statusCode && error.statusCode >= 400 && error.statusCode < 500) {
       return reply.code(error.statusCode).send({ error: 'bad_request' })

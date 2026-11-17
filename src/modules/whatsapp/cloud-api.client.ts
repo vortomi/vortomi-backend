@@ -83,6 +83,8 @@ export type AppDataSync = 'smb_app_state_sync' | 'history'
 /** Port for connecting a company's account: read its numbers and receive its events. */
 export interface WabaDirectory {
   listNumbers(wabaId: string, accessToken: string): Promise<WabaNumber[]>
+  /** Meta's business verification of the portfolio that owns the account (verified, pending, not_verified...); null if Meta does not say. */
+  businessVerification(wabaId: string, accessToken: string): Promise<string | null>
   /** Subscribes our app to the account's webhooks, so its messages reach us. */
   subscribeApp(wabaId: string, accessToken: string): Promise<void>
   numberDetails(phoneNumberId: string, accessToken: string): Promise<NumberDetails>
@@ -120,6 +122,8 @@ const numberDetailsSchema = z.object({
   is_on_biz_app: z.boolean().default(false),
 })
 
+const verificationSchema = z.object({ business_verification_status: z.string().optional() })
+
 const numbersResponseSchema = z.object({
   data: z.array(
     z.object({
@@ -133,7 +137,7 @@ const numbersResponseSchema = z.object({
 
 /** The only Graph paths this client calls. Ids are digits only: nothing can redirect a call elsewhere. */
 const ALLOWED_PATHS =
-  /^\d+(\?fields=display_phone_number,verified_name,is_on_biz_app|\/(messages|media|message_templates|subscribed_apps|register|smb_app_data|phone_numbers\?fields=id,display_phone_number,verified_name,name_status))?$/
+  /^\d+(\?fields=display_phone_number,verified_name,is_on_biz_app|\?fields=business_verification_status|\/(messages|media|message_templates|subscribed_apps|register|smb_app_data|phone_numbers\?fields=id,display_phone_number,verified_name,name_status))?$/
 
 /** Where Meta serves media files from: nothing else is ever fetched with the number's token. */
 const MEDIA_HOSTS = /(^|\.)(fbsbx\.com|facebook\.com|whatsapp\.net|fbcdn\.net)$/
@@ -217,6 +221,11 @@ export class CloudApiClient implements WhatsAppSender, TypingIndicator, MediaDow
     const parsed = numbersResponseSchema.safeParse(json)
     if (!parsed.success) throw new WhatsAppApiError('Cloud API returned no phone numbers', null, null)
     return parsed.data.data.map((n) => ({ phoneNumberId: n.id, displayNumber: n.display_phone_number, verifiedName: n.verified_name, nameStatus: n.name_status }))
+  }
+
+  async businessVerification(wabaId: string, accessToken: string): Promise<string | null> {
+    const parsed = verificationSchema.safeParse(await this.request('GET', `${wabaId}?fields=business_verification_status`, accessToken))
+    return parsed.success ? (parsed.data.business_verification_status ?? null) : null
   }
 
   async subscribeApp(wabaId: string, accessToken: string): Promise<void> {
