@@ -40,7 +40,8 @@ export class WebhookEventRepository {
           lt(webhookEvents.receivedAt, olderThan),
           lt(webhookEvents.attempts, maxAttempts),
           backoffMs > 0
-            ? sql`${webhookEvents.receivedAt} < ${olderThan}::timestamptz - make_interval(secs => ${backoffMs / 1000} * (power(4, ${webhookEvents.attempts}) - 1))`
+            ? // A raw Date inside sql`` reaches postgres-js unserialized and the query fails: always text.
+              sql`${webhookEvents.receivedAt} < ${olderThan.toISOString()}::timestamptz - make_interval(secs => ${backoffMs / 1000} * (power(4, ${webhookEvents.attempts}) - 1))`
             : undefined,
         ),
       )

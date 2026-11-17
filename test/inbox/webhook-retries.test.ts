@@ -2,7 +2,9 @@
 // hours does not use up every attempt in minutes; the last failure is said loudly; processed
 // webhooks are purged after their time.
 import { eq } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/pglite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import * as schema from '../../src/db/schema/index.ts'
 import { webhookEvents } from '../../src/db/schema/index.ts'
 import { WebhookEventRepository } from '../../src/modules/inbox/webhook-event.repository.ts'
 import { WebhookProcessor } from '../../src/modules/inbox/webhook-processor.ts'
@@ -38,6 +40,14 @@ describe('retrying failed webhooks', () => {
     expect(ids).toContain(due)
     expect(ids).not.toContain(fresh)
     expect(ids).not.toContain(thirdTry)
+  })
+
+  it('sends no raw Date to the driver (postgres-js rejects it inside sql``; PGlite does not)', async () => {
+    const params: unknown[] = []
+    const logged = drizzle(t.client, { schema, logger: { logQuery: (_query, values) => void params.push(...values) } })
+    await new WebhookEventRepository(logged).findPendingIds(new Date(Date.now() - 30_000), 7, 50, 30_000)
+    expect(params.length).toBeGreaterThan(0)
+    expect(params.filter((value) => value instanceof Date)).toEqual([])
   })
 
   it('says loudly when the last attempt fails', async () => {
