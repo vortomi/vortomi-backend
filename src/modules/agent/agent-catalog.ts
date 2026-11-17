@@ -1,4 +1,4 @@
-import { type AnyColumn, and, asc, eq, inArray, or, sql } from 'drizzle-orm'
+import { type AnyColumn, type SQL, and, asc, eq, inArray, or, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client.ts'
 import { productCategories, productVariants, products } from '../../db/schema/index.ts'
 import { likePattern } from '../../shared/pagination.ts'
@@ -11,8 +11,9 @@ const MAX_PRODUCTS = 6
 const MAX_VARIANTS = 12
 /** Words shorter than this ("de", "la") would match half the catalog. */
 const MIN_WORD = 3
-/** A company's own catalog this small goes whole into the prompt: the model sees every product. */
-const WHOLE_CATALOG = 40
+/** A catalog this small (Vortomi's inventory or a company's own) goes whole into the prompt, and asking for
+ * «la lista» gives at most this many (decided 17 Nov 2026: 50). */
+const WHOLE_CATALOG = 50
 
 /** Products as the model reads them, plus a note when it must know something about them. */
 export interface CatalogAnswer {
@@ -54,8 +55,8 @@ export function inventoryCatalog(db: Database, tenantId: string, bsPerUsd: strin
   const rate = bsPerUsd ? Number(bsPerUsd) : null
   return {
     bsPerUsd,
-    // A greeting or small talk names no product: nothing is put before the model (it can still search).
-    forPrompt: (customerText) => (searchTerms(customerText).length ? searchInventory(db, tenantId, customerText, rate) : Promise.resolve({ products: [] })),
+    // A small catalog goes whole before the model; a big one, only what the customer's words name.
+    forPrompt: (customerText) => searchInventory(db, tenantId, customerText, rate, 'prompt'),
     search: (query) => searchInventory(db, tenantId, query, rate),
     resolve: (name) => resolveInventory(db, tenantId, name),
   }
@@ -135,6 +136,9 @@ const FILLER = new Set(
   ).split(' '),
 )
 
+/** Words that ask for the whole offer («dame la lista», «¿qué venden?», «el menú»): the catalog, not a product. */
+const LISTING = new Set(['lista', 'catalogo', 'menu', 'carta', 'producto', 'todo', 'oferta'])
+
 /** A plural also finds its singular: golfeados → golfeado, panes → pan, cafés → caf(e). */
 const stem = (word: string) => (word.length >= 5 && word.endsWith('es') ? word.slice(0, -2) : word.length >= 4 && word.endsWith('s') ? word.slice(0, -1) : word)
 
@@ -151,10 +155,14 @@ export function searchTerms(text: string): string[] {
   return [...new Set(terms)].slice(0, 6)
 }
 
-/** Products whose name has any of the terms; a number ("19") matches as a whole ("19L", not "119"). */
+/**
+ * Products whose name has any of the terms; a number ("19") matches as a whole ("19L", not "119").
+ * Asking for the list («dame la lista») names no product: the first ones are given.
+ */
 function matching(list: ExternalProduct[], query: string): ExternalProduct[] {
-  const words = searchTerms(query)
-  if (!words.length) return []
+  const terms = searchTerms(query)
+  const words = terms.filter((w) => !LISTING.has(w))
+  if (!words.length) return terms.length ? list.slice(0, WHOLE_CATALOG) : []
   return list
     .filter((p) => {
       const name = fold(p.name)
@@ -164,52 +172,72 @@ function matching(list: ExternalProduct[], query: string): ExternalProduct[] {
 }
 
 /**
- * The company's active products in Vortomi's inventory matching the words of `query`, with their
- * versions, price in $ and Bs and availability. Opens its own tenant-scoped transaction, so no
- * transaction stays open while the model thinks.
+ * The company's active products in Vortomi's inventory, with their versions, price in $ and Bs and
+ * availability. 'prompt' (before the model): a small catalog goes whole, as a company's own one
+ * does, so «dame la lista» is answered; a big one, only what the words name. 'tool' (search_products):
+ * what the words name, or the first ones when they ask for the list. Opens its own tenant-scoped
+ * transaction, so no transaction stays open while the model thinks.
  */
-export async function searchInventory(db: Database, tenantId: string, query: string, rate: number | null): Promise<CatalogAnswer> {
-  const words = searchTerms(query)
-  if (!words.length) return { products: [], note: 'Ask the customer which product they mean.' }
+export async function searchInventory(db: Database, tenantId: string, query: string, rate: number | null, use: 'prompt' | 'tool' = 'tool'): Promise<CatalogAnswer> {
+  const terms = searchTerms(query)
+  const named = terms.filter((w) => !LISTING.has(w))
+  const asksForList = terms.length > named.length
   return withTenant(db, tenantId, async ({ tx }) => {
+    if (use === 'prompt' || (asksForList && !named.length)) {
+      const all = await activeProducts(tx, tenantId, undefined, WHOLE_CATALOG + 1)
+      // Small: all of it. Big: only when they ask for the list, its first ones; otherwise what they name.
+      if (all.length <= WHOLE_CATALOG || (asksForList && !named.length)) return describeInventory(tx, tenantId, all.slice(0, WHOLE_CATALOG), rate)
+    }
+    if (!named.length) return use === 'prompt' ? { products: [] } : { products: [], note: 'Ask the customer which product they mean.' }
     // Without accents on both sides: «cafe» finds «Café con leche».
     const plain = (column: AnyColumn) => sql`translate(lower(${column}), ${ACCENTED}, ${PLAIN})`
-    const matches = words.flatMap((w) =>
+    const matches = named.flatMap((w) =>
       [products.name, products.description, productCategories.name].map((column) => sql`${plain(column)} like ${likePattern(w)}`),
     )
-    const found = await tx
-      .select({ id: products.id, name: products.name, description: products.description, category: productCategories.name, saleUnit: products.saleUnit, minQuantity: products.minQuantity, quantityStep: products.quantityStep, stockMode: products.stockMode })
-      .from(products)
-      .leftJoin(productCategories, and(eq(productCategories.tenantId, products.tenantId), eq(productCategories.id, products.categoryId)))
-      .where(and(eq(products.tenantId, tenantId), eq(products.active, true), or(...matches)))
-      .orderBy(asc(products.name))
-      .limit(MAX_PRODUCTS)
-    if (!found.length) return { products: [], note: NOTHING }
-    const variants = await tx
-      .select({ productId: productVariants.productId, name: productVariants.name, priceCents: productVariants.priceCents, onHand: productVariants.onHand, reserved: productVariants.reserved, available: productVariants.available })
-      .from(productVariants)
-      .where(and(eq(productVariants.tenantId, tenantId), inArray(productVariants.productId, found.map((p) => p.id))))
-      .orderBy(asc(productVariants.priceCents))
-    return {
-      products: found.map((product) => ({
-        name: product.name,
-        category: product.category,
-        description: product.description.slice(0, 300) || undefined,
-        sold: unitText(product.saleUnit),
-        orderable: orderableText(product),
-        versions: variants
-          .filter((v) => v.productId === product.id)
-          .slice(0, MAX_VARIANTS)
-          .map((v) => {
-            const left = Math.max(0, v.onHand - v.reserved)
-            let availability: string
-            if (product.stockMode === 'availability') availability = v.available ? 'available today' : 'not available today'
-            else availability = left > 0 ? `${left} in stock` : 'out of stock'
-            return { name: v.name, priceUsd: money(v.priceCents), priceBs: rate ? money(Math.round(v.priceCents * rate)) : undefined, availability }
-          }),
-      })),
-    }
+    return describeInventory(tx, tenantId, await activeProducts(tx, tenantId, or(...matches), MAX_PRODUCTS), rate)
   })
+}
+
+type Tx = Parameters<Parameters<typeof withTenant>[2]>[0]['tx']
+
+/** The company's active products (those matching `filter`, if any), by name. */
+function activeProducts(tx: Tx, tenantId: string, filter: SQL | undefined, limit: number) {
+  return tx
+    .select({ id: products.id, name: products.name, description: products.description, category: productCategories.name, saleUnit: products.saleUnit, minQuantity: products.minQuantity, quantityStep: products.quantityStep, stockMode: products.stockMode })
+    .from(products)
+    .leftJoin(productCategories, and(eq(productCategories.tenantId, products.tenantId), eq(productCategories.id, products.categoryId)))
+    .where(and(eq(products.tenantId, tenantId), eq(products.active, true), filter))
+    .orderBy(asc(products.name))
+    .limit(limit)
+}
+
+/** Products as the model reads them: versions with price in $ and Bs, and what can be promised. */
+async function describeInventory(tx: Tx, tenantId: string, found: Awaited<ReturnType<typeof activeProducts>>, rate: number | null): Promise<CatalogAnswer> {
+  if (!found.length) return { products: [], note: NOTHING }
+  const variants = await tx
+    .select({ productId: productVariants.productId, name: productVariants.name, priceCents: productVariants.priceCents, onHand: productVariants.onHand, reserved: productVariants.reserved, available: productVariants.available })
+    .from(productVariants)
+    .where(and(eq(productVariants.tenantId, tenantId), inArray(productVariants.productId, found.map((p) => p.id))))
+    .orderBy(asc(productVariants.priceCents))
+  return {
+    products: found.map((product) => ({
+      name: product.name,
+      category: product.category,
+      description: product.description.slice(0, 300) || undefined,
+      sold: unitText(product.saleUnit),
+      orderable: orderableText(product),
+      versions: variants
+        .filter((v) => v.productId === product.id)
+        .slice(0, MAX_VARIANTS)
+        .map((v) => {
+          const left = Math.max(0, v.onHand - v.reserved)
+          let availability: string
+          if (product.stockMode === 'availability') availability = v.available ? 'available today' : 'not available today'
+          else availability = left > 0 ? `${left} in stock` : 'out of stock'
+          return { name: v.name, priceUsd: money(v.priceCents), priceBs: rate ? money(Math.round(v.priceCents * rate)) : undefined, availability }
+        }),
+    })),
+  }
 }
 
 /** How much can be ordered, when it is not simply "any whole number": "from 0.1, in steps of 0.05". */
