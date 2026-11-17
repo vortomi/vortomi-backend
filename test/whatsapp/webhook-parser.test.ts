@@ -79,3 +79,36 @@ describe('template status webhooks', () => {
     ])
   })
 })
+
+describe('parseWebhookPayload: coexistence (the owner\'s WhatsApp Business app)', () => {
+  const coex = (field: string, value: object) =>
+    webhook({ field, value: { messaging_product: 'whatsapp', metadata: { display_phone_number: '584125550000', phone_number_id: PHONE_A }, ...value } })
+
+  it('an echo without the customer\'s number (a username-only customer) is skipped, the rest kept', () => {
+    const { events, skipped } = parseWebhookPayload(
+      coex('smb_message_echoes', {
+        message_echoes: [
+          { from: '584125550000', id: 'wamid.e1', timestamp: '1790000000', type: 'text', text: { body: 'sin número' } },
+          { from: '584125550000', to: '584125550111', id: 'wamid.e2', timestamp: '1790000000', type: 'image', image: { id: 'media-9', caption: 'la torta' } },
+        ],
+      }),
+    )
+    expect(skipped).toEqual(['invalid_echo'])
+    expect(events).toEqual([
+      expect.objectContaining({ kind: 'owner_echo', phoneNumberId: PHONE_A, waMessageId: 'wamid.e2', to: '584125550111', type: 'image', body: 'la torta', waMediaId: 'media-9' }),
+    ])
+  })
+
+  it('contacts: phone numbers are normalised to digits; items without a number are skipped', () => {
+    const { events, skipped } = parseWebhookPayload(
+      coex('smb_app_state_sync', {
+        state_sync: [
+          { type: 'contact', contact: { full_name: 'Sra. María', phone_number: '+58 412-555 0111' }, action: 'add', metadata: { timestamp: '1790000000' } },
+          { type: 'contact', contact: { full_name: 'Sin número' }, action: 'add', metadata: { timestamp: '1790000000' } },
+        ],
+      }),
+    )
+    expect(skipped).toEqual(['invalid_contact_sync'])
+    expect(events).toEqual([{ kind: 'contact_sync', phoneNumberId: PHONE_A, contacts: [{ waId: '584125550111', fullName: 'Sra. María', action: 'add', timestamp: new Date(1790000000000) }] }])
+  })
+})

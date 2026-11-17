@@ -1,6 +1,7 @@
 import type { Database } from '../../db/client.ts'
 import type { IngestService } from '../conversations/ingest.service.ts'
 import type { MessageStatusService } from '../conversations/message-status.service.ts'
+import { OwnerAppIngest } from '../conversations/owner-app-ingest.ts'
 import type { AutoResponder } from '../messaging/auto-responder.ts'
 import type { TemplateService } from '../templates/template-service.ts'
 import type { ChannelDirectory } from '../tenancy/channel-directory.ts'
@@ -23,6 +24,8 @@ export class EventRouter implements WhatsAppEventHandler {
     private readonly templates: Pick<TemplateService, 'applyStatus'>,
     // Optional so tests about routing need no Meta double; main.ts always passes it.
     private readonly autoReply: Pick<AutoResponder, 'afterInbound'> | null = null,
+    // What the owner does on the WhatsApp Business app of a coexistence number.
+    private readonly ownerApp = new OwnerAppIngest(),
   ) {}
 
   handle(event: WhatsAppEvent): Promise<EventOutcome> {
@@ -40,6 +43,16 @@ export class EventRouter implements WhatsAppEventHandler {
           return this.ingest.recordInbound(scope, route.channelAccountId, event)
         case 'status_update':
           await this.statuses.record(scope, event)
+          return null
+        // Records only: the owner's own messages and past chats never trigger an answer.
+        case 'owner_echo':
+          await this.ownerApp.recordEcho(scope, route.channelAccountId, event)
+          return null
+        case 'history_chunk':
+          await this.ownerApp.recordHistory(scope, route.channelAccountId, event)
+          return null
+        case 'contact_sync':
+          await this.ownerApp.applyContacts(scope, route.channelAccountId, event)
           return null
       }
     })

@@ -43,8 +43,50 @@ export interface TemplateStatusEvent {
   reason: string | null
 }
 
+/** What a message holds, the same for every source: Meta's variants mapped onto one flat shape. */
+export type MessageContent = Pick<InboundMessageEvent, 'type' | 'body' | 'replyId' | 'waMediaId'>
+
+/**
+ * The owner wrote to a customer from the WhatsApp Business app (coexistence): Meta echoes it so the
+ * conversation in Vortomi is complete.
+ */
+export interface OwnerEchoEvent extends EventBase, MessageContent {
+  kind: 'owner_echo'
+  /** Customer WhatsApp id (digits only). */
+  to: string
+}
+
+/** One message of the owner's app history: written by the customer or, `fromBusiness`, by the owner. */
+export interface HistoryMessage extends MessageContent {
+  waMessageId: string
+  timestamp: Date
+  fromBusiness: boolean
+}
+
+/**
+ * A chunk of the chats the owner's app shares once, right after coexistence onboarding (up to 180
+ * days, no groups). Chunks arrive in any order and may repeat: each message is stored once.
+ */
+export interface HistoryChunkEvent {
+  kind: 'history_chunk'
+  phoneNumberId: string
+  /** 0: last day, 1: up to 90 days, 2: up to 180 days. */
+  phase: number
+  chunkOrder: number
+  /** 0 to 100; 100 = the whole history arrived. */
+  progress: number
+  threads: { waId: string; messages: HistoryMessage[] }[]
+}
+
+/** Contacts of the owner's app: saved or edited ('add'), or deleted ('remove'). */
+export interface ContactSyncEvent {
+  kind: 'contact_sync'
+  phoneNumberId: string
+  contacts: { waId: string; fullName: string | null; action: 'add' | 'remove'; timestamp: Date }[]
+}
+
 /** Events about a number's messages, routed by phone_number_id. */
-export type NumberEvent = InboundMessageEvent | StatusUpdateEvent
+export type NumberEvent = InboundMessageEvent | StatusUpdateEvent | OwnerEchoEvent | HistoryChunkEvent | ContactSyncEvent
 
 export type WhatsAppEvent = NumberEvent | TemplateStatusEvent
 
@@ -52,8 +94,20 @@ export type WhatsAppEvent = NumberEvent | TemplateStatusEvent
 export const routingKeyOf = (event: WhatsAppEvent): string =>
   event.kind === 'template_status' ? `waba ${event.wabaId}` : event.phoneNumberId
 
-export const eventIdOf = (event: WhatsAppEvent): string =>
-  event.kind === 'template_status' ? `template ${event.metaTemplateId}` : event.waMessageId
+export const eventIdOf = (event: WhatsAppEvent): string => {
+  switch (event.kind) {
+    case 'template_status':
+      return `template ${event.metaTemplateId}`
+    case 'history_chunk':
+      return `history ${event.phase}/${event.chunkOrder}`
+    case 'contact_sync':
+      return `contacts ${event.contacts.length}`
+    case 'inbound_message':
+    case 'status_update':
+    case 'owner_echo':
+      return event.waMessageId
+  }
+}
 
 export type SkipReason =
   | 'invalid_envelope'
@@ -62,6 +116,11 @@ export type SkipReason =
   | 'invalid_message'
   | 'invalid_status'
   | 'unknown_status'
+  | 'invalid_echo'
+  | 'invalid_history'
+  /** The owner turned off sharing the chat history in the WhatsApp Business app (Meta 2593109). */
+  | 'history_declined'
+  | 'invalid_contact_sync'
 
 export interface ParseResult {
   events: WhatsAppEvent[]

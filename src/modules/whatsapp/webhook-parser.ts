@@ -1,51 +1,10 @@
-import { DELIVERY_STATUSES, type DeliveryStatus, type MessageType } from '../../db/schema/enums.ts'
-import {
-  type InboundMessageEvent,
-  type ParseResult,
-  type StatusUpdateEvent,
-} from './events.ts'
-import { contactSchema, envelopeSchema, messageSchema, statusSchema, templateStatusSchema, type RawMessage } from './payload.schema.ts'
+import type { ParseResult, StatusUpdateEvent } from './events.ts'
+import { fromUnixSeconds, isDeliveryStatus, toContent } from './message-content.ts'
+import { parseContactSync, parseEchoes, parseHistory } from './owner-app-parser.ts'
+import { contactSchema, envelopeSchema, messageSchema, statusSchema, templateStatusSchema } from './payload.schema.ts'
 
-const fromUnixSeconds = (value: string): Date => new Date(Number(value) * 1000)
-
-const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'] as const
-type MediaType = (typeof MEDIA_TYPES)[number]
-const isMediaType = (type: string): type is MediaType => (MEDIA_TYPES as readonly string[]).includes(type)
-const isDeliveryStatus = (status: string): status is DeliveryStatus =>
-  (DELIVERY_STATUSES as readonly string[]).includes(status)
-
-/** Maps Meta's message variants onto one flat shape. Unknown types are kept as "unsupported". */
-function toContent(message: RawMessage): Pick<InboundMessageEvent, 'type' | 'body' | 'replyId' | 'waMediaId'> {
-  const empty = { body: null, replyId: null, waMediaId: null }
-
-  if (message.type === 'text' && message.text) return { ...empty, type: 'text', body: message.text.body }
-
-  if (isMediaType(message.type)) {
-    const media = message[message.type]
-    if (media) return { ...empty, type: message.type, body: media.caption ?? null, waMediaId: media.id }
-  }
-
-  if (message.type === 'interactive' && message.interactive) {
-    const reply = message.interactive.button_reply ?? message.interactive.list_reply
-    if (reply) return { ...empty, type: 'interactive', body: reply.title, replyId: reply.id }
-  }
-
-  // Quick-reply button tapped on a template message.
-  if (message.type === 'button' && message.button) {
-    return { ...empty, type: 'button', body: message.button.text, replyId: message.button.payload ?? null }
-  }
-
-  if (message.type === 'reaction') return { ...empty, type: 'reaction', body: message.reaction?.emoji ?? null }
-
-  if (message.type === 'location' && message.location) {
-    const { name, address, latitude, longitude } = message.location
-    return { ...empty, type: 'location', body: [name, address].filter(Boolean).join(', ') || `${latitude},${longitude}` }
-  }
-
-  const passthrough: readonly MessageType[] = ['contacts']
-  const type = passthrough.find((t) => t === message.type) ?? 'unsupported'
-  return { ...empty, type }
-}
+/** Fields about a number (routed by its phone_number_id); others are ignored. */
+const NUMBER_FIELDS = new Set(['messages', 'smb_message_echoes', 'history', 'smb_app_state_sync'])
 
 /**
  * Turns one verified webhook payload into events, each tagged with the business
@@ -80,12 +39,26 @@ export function parseWebhookPayload(payload: unknown): ParseResult {
         })
         continue
       }
-      if (change.field !== 'messages') continue
+      if (!NUMBER_FIELDS.has(change.field)) continue
       const { metadata, contacts = [], messages = [], statuses = [] } = change.value
 
       const phoneNumberId = metadata?.phone_number_id
       if (!phoneNumberId) {
         result.skipped.push('missing_phone_number_id')
+        continue
+      }
+
+      // Coexistence numbers: what the owner does on the WhatsApp Business app.
+      if (change.field === 'smb_message_echoes') {
+        parseEchoes(Array.isArray(change.value['message_echoes']) ? change.value['message_echoes'] : [], phoneNumberId, result)
+        continue
+      }
+      if (change.field === 'history') {
+        parseHistory(change.value['history'], phoneNumberId, result)
+        continue
+      }
+      if (change.field === 'smb_app_state_sync') {
+        parseContactSync(change.value['state_sync'], phoneNumberId, result)
         continue
       }
 

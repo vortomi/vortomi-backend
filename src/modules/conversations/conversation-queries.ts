@@ -1,4 +1,4 @@
-import { type SQL, and, desc, eq, exists, ilike, lt, or, sql } from 'drizzle-orm'
+import { type SQL, and, desc, eq, exists, ilike, or, sql } from 'drizzle-orm'
 import { contactTags, contacts, conversations, messageStatusEvents, messages } from '../../db/schema/index.ts'
 import type { DeliveryStatus, MessageType } from '../../db/schema/enums.ts'
 import { type Cursor, encodeCursor, likePattern } from '../../shared/pagination.ts'
@@ -105,7 +105,11 @@ export class ConversationQueries {
     return row ? withoutCursor(row) : null
   }
 
-  /** Newest first, `limit` at a time; `beforeId` continues an older page. Caller checks visibility. */
+  /**
+   * Newest first, `limit` at a time; `beforeId` continues an older page. Caller checks visibility.
+   * Ordered by when each message was written (created_at), not by when it was stored: chats
+   * imported from the owner's WhatsApp Business app arrive later but carry their own time.
+   */
   async messages(scope: MemberScope, conversationId: string, limit: number, beforeId?: number) {
     const rows = await scope.tx
       .select({
@@ -133,8 +137,16 @@ export class ConversationQueries {
           end`,
       })
       .from(messages)
-      .where(and(eq(messages.tenantId, scope.tenantId), eq(messages.conversationId, conversationId), beforeId ? lt(messages.id, beforeId) : undefined))
-      .orderBy(desc(messages.id))
+      .where(
+        and(
+          eq(messages.tenantId, scope.tenantId),
+          eq(messages.conversationId, conversationId),
+          beforeId
+            ? sql`(${messages.createdAt}, ${messages.id}) < (select b.created_at, b.id from ${messages} b where b.tenant_id = ${scope.tenantId} and b.id = ${beforeId})`
+            : undefined,
+        ),
+      )
+      .orderBy(desc(messages.createdAt), desc(messages.id))
       .limit(limit + 1)
     const page = rows.slice(0, limit)
     return { items: page, nextBeforeId: rows.length > limit ? (page.at(-1)?.id ?? null) : null }
