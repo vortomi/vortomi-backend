@@ -5,7 +5,7 @@ import { asAdmin, inCompany } from '../../http/company-scope.ts'
 import { parseInput } from '../../http/validation.ts'
 import { type CategoryService, categoryInput } from './category-service.ts'
 import { type VariantTypeService, variantOptionInput, variantTypeInput } from './variant-type-service.ts'
-import { type InventoryService, movementInput, productInput, productUpdate, variantInput, variantUpdate } from './inventory-service.ts'
+import { type InventoryService, movementInput, productInput, productUpdate, stockCountInput, variantInput, variantUpdate } from './inventory-service.ts'
 
 export interface InventoryRoutesOptions {
   db: Database
@@ -109,6 +109,9 @@ export const inventoryRoutes: FastifyPluginCallback<InventoryRoutesOptions> = (a
       .code(201)
       .send(await inCompany(db, request, (scope) => inventory.move(scope, parseInput(variantParams, request.params).variantId, parseInput(movementInput, request.body)))),
   )
+
+  // A stock count of many versions at once: adjustments of the differences, admins only.
+  app.post('/inventory/counts', (request) => asAdmin(db, request, (scope) => inventory.count(scope, parseInput(stockCountInput, request.body))))
 
   app.get('/inventory/variants/:variantId/movements', (request) =>
     inCompany(db, request, async (scope) => ({ items: await inventory.history(scope, parseInput(variantParams, request.params).variantId) })),

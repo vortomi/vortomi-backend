@@ -166,3 +166,39 @@ describe('what the database guarantees', () => {
     })
   })
 })
+
+describe('a stock count (mockup web-23)', () => {
+  const products = async () =>
+    (await call(who.laura, 'GET', '/inventory/products')).json<{ items: { name: string; stockMode: string; variants: { id: string; onHand: number }[] }[] }>().items
+
+  it('records an adjustment for each version whose count differs, nothing for the rest', async () => {
+    const versions = (await products()).flatMap((p) => p.variants)
+    const [first, second] = versions
+    const items = [
+      { variantId: first!.id, counted: first!.onHand + 5 },
+      { variantId: second!.id, counted: second!.onHand },
+    ]
+    const counted = await call(who.laura, 'POST', '/inventory/counts', { items, reason: 'Conteo del lunes' })
+    expect(counted.json<{ changed: number }>().changed).toBe(1)
+    const history = (await call(who.laura, 'GET', `/inventory/variants/${first!.id}/movements`)).json<{ items: { kind: string; quantity: number; reason: string }[] }>().items
+    expect(history[0]).toMatchObject({ kind: 'adjustment', quantity: 5, reason: 'Conteo del lunes' })
+    expect((await call(who.laura, 'GET', `/inventory/variants/${second!.id}/movements`)).json<{ items: { kind: string }[] }>().items[0]!.kind).not.toBe('adjustment')
+  })
+
+  it('the difference is taken against the shelf when saving, so a sale made while counting stays', async () => {
+    const version = (await products())[0]!.variants[0]!
+    await call(who.carlos, 'POST', `/inventory/variants/${version.id}/movements`, { kind: 'sale', quantity: -1 })
+    const result = await call(who.laura, 'POST', '/inventory/counts', { items: [{ variantId: version.id, counted: 2 }] })
+    expect(result.json<{ variants: { id: string; onHand: number }[] }>().variants).toEqual([expect.objectContaining({ id: version.id, onHand: 2 })])
+  })
+
+  it('admins only; whole numbers for pieces; one line per version; nothing of another company', async () => {
+    const version = (await products())[0]!.variants[0]!
+    expect((await call(who.carlos, 'POST', '/inventory/counts', { items: [{ variantId: version.id, counted: 1 }] })).json()).toEqual({ error: 'admin_required' })
+    expect((await call(who.laura, 'POST', '/inventory/counts', { items: [{ variantId: version.id, counted: 1.5 }] })).json()).toEqual({ error: 'invalid_quantity' })
+    const twice = { items: [{ variantId: version.id, counted: 1 }, { variantId: version.id, counted: 2 }] }
+    expect((await call(who.laura, 'POST', '/inventory/counts', twice)).json()).toEqual({ error: 'invalid_request' })
+    const theirs = (await call(who.pedro, 'GET', '/inventory/products', undefined, b.tenantId)).json<{ items: { variants: { id: string }[] }[] }>().items[0]!.variants[0]!
+    expect((await call(who.laura, 'POST', '/inventory/counts', { items: [{ variantId: theirs.id, counted: 1 }] })).json()).toEqual({ error: 'inventory_item_not_found' })
+  })
+})

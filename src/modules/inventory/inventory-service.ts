@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, or, sql } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { z } from 'zod'
 import { SALE_UNITS, STOCK_MODES, STOCK_MOVEMENT_KINDS, type SaleUnit, type StockMovementKind } from '../../db/schema/enums.ts'
@@ -137,6 +137,17 @@ export const movementInput = z.object({
   reason: z.string().trim().max(200).default(''),
 })
 export type MovementInput = z.infer<typeof movementInput>
+
+/** A stock count (mockup web-23): what is on the shelf of each version counted, one line per version. */
+export const stockCountInput = z.object({
+  items: z
+    .array(z.object({ variantId: z.uuid(), counted: z.number().min(0).max(1_000_000_000).refine(hasAtMostTwoDecimals) }))
+    .min(1)
+    .max(500)
+    .refine((items) => new Set(items.map((i) => i.variantId)).size === items.length, 'One line per version'),
+  reason: z.string().trim().max(200).default(''),
+})
+export type StockCountInput = z.infer<typeof stockCountInput>
 
 interface ProductShape {
   stockMode: ProductInput['stockMode']
@@ -353,6 +364,38 @@ export class InventoryService {
     await scope.tx.insert(stockMovements).values({ tenantId: scope.tenantId, variantId, ...input, userId: scope.member.userId })
     const [row] = await scope.tx.select(variantColumns).from(productVariants).where(and(eq(productVariants.tenantId, scope.tenantId), eq(productVariants.id, variantId)))
     return row!
+  }
+
+  /**
+   * Records a count: for each version counted, an adjustment of the difference with what is on the
+   * shelf NOW (rows locked), so a sale made while counting is not undone. Versions that did not
+   * change get nothing. Only products whose stock is counted; admins only (the route checks).
+   */
+  async count(scope: MemberScope, input: StockCountInput) {
+    const ids = input.items.map((item) => item.variantId)
+    const rows = await scope.tx
+      .select({ id: productVariants.id, onHand: productVariants.onHand, saleUnit: products.saleUnit, stockMode: products.stockMode })
+      .from(productVariants)
+      .innerJoin(products, and(eq(products.tenantId, productVariants.tenantId), eq(products.id, productVariants.productId)))
+      .where(and(eq(productVariants.tenantId, scope.tenantId), inArray(productVariants.id, ids)))
+      .for('update', { of: productVariants })
+    if (rows.length !== ids.length) throw new InventoryNotFoundError()
+    const byId = new Map(rows.map((row) => [row.id, row]))
+    const reason = input.reason || 'Conteo'
+    const moves = input.items.flatMap((item) => {
+      const row = byId.get(item.variantId)!
+      if (row.stockMode !== 'units' || !fitsUnit(item.counted, row.saleUnit)) throw new InvalidQuantityError()
+      const difference = Math.round((item.counted - row.onHand) * 100) / 100
+      return difference === 0
+        ? []
+        : [{ tenantId: scope.tenantId, variantId: row.id, kind: 'adjustment' as const, quantity: difference, reason, userId: scope.member.userId }]
+    })
+    if (moves.length) await scope.tx.insert(stockMovements).values(moves)
+    const variants = await scope.tx
+      .select(variantColumns)
+      .from(productVariants)
+      .where(and(eq(productVariants.tenantId, scope.tenantId), inArray(productVariants.id, ids)))
+    return { changed: moves.length, variants }
   }
 
   history(scope: MemberScope, variantId: string) {
