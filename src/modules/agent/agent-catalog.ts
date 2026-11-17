@@ -1,4 +1,4 @@
-import { and, asc, eq, ilike, inArray, or } from 'drizzle-orm'
+import { type AnyColumn, and, asc, eq, inArray, or, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client.ts'
 import { productCategories, productVariants, products } from '../../db/schema/index.ts'
 import { likePattern } from '../../shared/pagination.ts'
@@ -44,6 +44,9 @@ export interface CatalogItem {
 }
 
 const NOTHING = 'Nothing in the catalog matches. Do not offer anything else as if it existed.'
+/** translate() pairs: each accented letter and its plain one, same position (ñ reads as n, as fold() does). */
+const ACCENTED = 'áéíóúüàèìòùâêîôûñ'
+const PLAIN = 'aeiouuaeiouaeioun'
 const money = (cents: number) => (cents / 100).toFixed(2)
 
 /** Vortomi's inventory of the company, with prices in Bs at the company's rate. */
@@ -51,7 +54,8 @@ export function inventoryCatalog(db: Database, tenantId: string, bsPerUsd: strin
   const rate = bsPerUsd ? Number(bsPerUsd) : null
   return {
     bsPerUsd,
-    forPrompt: (customerText) => searchInventory(db, tenantId, customerText, rate),
+    // A greeting or small talk names no product: nothing is put before the model (it can still search).
+    forPrompt: (customerText) => (searchTerms(customerText).length ? searchInventory(db, tenantId, customerText, rate) : Promise.resolve({ products: [] })),
     search: (query) => searchInventory(db, tenantId, query, rate),
     resolve: (name) => resolveInventory(db, tenantId, name),
   }
@@ -121,11 +125,35 @@ function describe(p: ExternalProduct, priceBs: string | undefined) {
 const fold = (text: string) => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
 const isNumber = (word: string) => /^\d+$/.test(word)
 
-/** Products whose name has any of the words; a number ("19") matches as a whole ("19L", not "119"). */
-function matching(list: ExternalProduct[], query: string): ExternalProduct[] {
-  const words = fold(query)
+/** Words that say nothing about which product: never searched («hola, ¿tienen…?» must not match «con» in a description). */
+const FILLER = new Set(
+  (
+    'hola buenas buenos dias tardes noches tienen tiene tienes hay quiero quisiera queria necesito busco buscando venden vende ' +
+    'precio precios cuanto cuanta cuantos cuantas cuesta cuestan vale valen sale salen para por con sin los las una uno unos unas ' +
+    'del que como donde cual cuales mas muy favor gracias porfa ustedes usted ahi algo esta este estos estas eso esa ese son sus ' +
+    'tus mis nos les tambien pero pues bien aqui alla dame deme manda mande hoy ahora todavia aun'
+  ).split(' '),
+)
+
+/** A plural also finds its singular: golfeados → golfeado, panes → pan, cafés → caf(e). */
+const stem = (word: string) => (word.length >= 5 && word.endsWith('es') ? word.slice(0, -2) : word.length >= 4 && word.endsWith('s') ? word.slice(0, -1) : word)
+
+/**
+ * What the customer wrote, as terms to look for in the catalog: no accents, signs or filler words,
+ * plurals as their stem, numbers whole. «¿Tienen golfeados?» → ["golfeado"].
+ */
+export function searchTerms(text: string): string[] {
+  const terms = fold(text)
     .split(/[^a-z0-9]+/)
-    .filter((w) => w.length >= MIN_WORD || isNumber(w))
+    .filter((w) => isNumber(w) || (w.length >= MIN_WORD && !FILLER.has(w)))
+    .map((w) => (isNumber(w) ? w : stem(w)))
+    .filter((w) => isNumber(w) || w.length >= MIN_WORD)
+  return [...new Set(terms)].slice(0, 6)
+}
+
+/** Products whose name has any of the terms; a number ("19") matches as a whole ("19L", not "119"). */
+function matching(list: ExternalProduct[], query: string): ExternalProduct[] {
+  const words = searchTerms(query)
   if (!words.length) return []
   return list
     .filter((p) => {
@@ -141,14 +169,14 @@ function matching(list: ExternalProduct[], query: string): ExternalProduct[] {
  * transaction stays open while the model thinks.
  */
 export async function searchInventory(db: Database, tenantId: string, query: string, rate: number | null): Promise<CatalogAnswer> {
-  const words = query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length >= MIN_WORD)
-    .slice(0, 6)
+  const words = searchTerms(query)
   if (!words.length) return { products: [], note: 'Ask the customer which product they mean.' }
   return withTenant(db, tenantId, async ({ tx }) => {
-    const matches = words.flatMap((w) => [ilike(products.name, likePattern(w)), ilike(products.description, likePattern(w)), ilike(productCategories.name, likePattern(w))])
+    // Without accents on both sides: «cafe» finds «Café con leche».
+    const plain = (column: AnyColumn) => sql`translate(lower(${column}), ${ACCENTED}, ${PLAIN})`
+    const matches = words.flatMap((w) =>
+      [products.name, products.description, productCategories.name].map((column) => sql`${plain(column)} like ${likePattern(w)}`),
+    )
     const found = await tx
       .select({ id: products.id, name: products.name, description: products.description, category: productCategories.name, saleUnit: products.saleUnit, minQuantity: products.minQuantity, quantityStep: products.quantityStep, stockMode: products.stockMode })
       .from(products)
