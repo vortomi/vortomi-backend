@@ -1,0 +1,2 @@
+ALTER TABLE "tenants" DROP CONSTRAINT "tenants_status_check";--> statement-breakpoint
+ALTER TABLE "tenants" ADD CONSTRAINT "tenants_status_check" CHECK ("tenants"."status" in ('draft', 'awaiting_channel', 'awaiting_owner', 'active', 'suspended', 'cancelled'));

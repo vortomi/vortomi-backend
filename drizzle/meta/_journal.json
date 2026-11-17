@@ -456,6 +456,13 @@
       "when": 1794929812454,
       "tag": "0064_channel_status_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1794944234420,
+      "tag": "0065_owner_connects_first_number",
+      "breakpoints": true
     }
   ]
 }

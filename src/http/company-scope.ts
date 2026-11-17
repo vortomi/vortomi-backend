@@ -1,7 +1,7 @@
 import type { FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import type { Database } from '../db/client.ts'
-import { type MemberScope, withMember } from '../modules/access/member-scope.ts'
+import { type CompanyStage, type MemberScope, withMember } from '../modules/access/member-scope.ts'
 import { identityOf } from './authenticate.ts'
 import { forbidden } from './errors.ts'
 
@@ -19,15 +19,30 @@ export function companyOf(request: FastifyRequest): { tenantId: string; userId: 
  * they are an active member of it. A malformed id, an unknown company and someone
  * else's company all answer the same 403 (NotAMemberError, domain-errors.ts).
  */
-export function inCompany<T>(db: Database, request: FastifyRequest, work: (scope: MemberScope) => Promise<T>): Promise<T> {
+export function inCompany<T>(
+  db: Database,
+  request: FastifyRequest,
+  work: (scope: MemberScope) => Promise<T>,
+  stage: CompanyStage = 'working',
+): Promise<T> {
   const { tenantId, userId } = companyOf(request)
-  return withMember(db, tenantId, userId, work)
+  return withMember(db, tenantId, userId, work, stage)
 }
 
 /** inCompany() for changes only admins may make: membership, role, then the work. */
-export function asAdmin<T>(db: Database, request: FastifyRequest, work: (scope: MemberScope) => Promise<T>): Promise<T> {
-  return inCompany(db, request, (scope) => {
-    if (scope.member.role !== 'admin') throw forbidden('admin_required')
-    return work(scope)
-  })
+export function asAdmin<T>(
+  db: Database,
+  request: FastifyRequest,
+  work: (scope: MemberScope) => Promise<T>,
+  stage: CompanyStage = 'working',
+): Promise<T> {
+  return inCompany(
+    db,
+    request,
+    (scope) => {
+      if (scope.member.role !== 'admin') throw forbidden('admin_required')
+      return work(scope)
+    },
+    stage,
+  )
 }

@@ -23,6 +23,14 @@ export class NoChannelError extends Error {
   }
 }
 
+/** The owner can only be asked to connect the first number of a draft that has none yet. */
+export class NotADraftError extends Error {
+  constructor() {
+    super('Only a draft without a number can wait for its owner')
+    this.name = 'NotADraftError'
+  }
+}
+
 /** Only a sign-up left half way, with nothing in it yet (no number, people or invitation), can be discarded. */
 export class NotDiscardableError extends Error {
   constructor() {
@@ -281,6 +289,30 @@ export class TenantAdminService {
       { ...input, role: 'admin', canSeeOthers: true, channelAccountIds: channels.map((c) => c.id) },
       invitedBy,
     )
+  }
+
+  /**
+   * The owner connects the first number from their own panel: their admin invitation is created and the
+   * company waits for them (awaiting_owner), in one step. Only a draft without a number: the manual
+   * path (we connect it) stays as it was. It goes live by itself when the number is in.
+   */
+  async inviteOwner(tenantId: string, input: { name: string; email: string }, invitedBy: string) {
+    await this.tenant(tenantId)
+    return this.db.transaction(async (tx) => {
+      const waiting = await tx
+        .update(tenants)
+        .set({ status: 'awaiting_owner' })
+        .where(
+          and(
+            eq(tenants.id, tenantId),
+            eq(tenants.status, 'draft'),
+            sql`not exists (select 1 from ${channelAccounts} c where c.tenant_id = ${tenants.id})`,
+          ),
+        )
+        .returning({ id: tenants.id })
+      if (!waiting.length) throw new NotADraftError()
+      return this.invitations.createIn(tx, tenantId, { ...input, role: 'admin', canSeeOthers: true, channelAccountIds: [] }, invitedBy)
+    })
   }
 
   async renewInvitation(tenantId: string, invitationId: string) {

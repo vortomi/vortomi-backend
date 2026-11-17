@@ -4,7 +4,8 @@
  * arrays and the application derives its types from them.
  */
 
-export const TENANT_STATUSES = ['draft', 'awaiting_channel', 'active', 'suspended', 'cancelled'] as const
+// awaiting_owner: the invited admin connects the first number themselves («Conectar con WhatsApp»); the company goes live then.
+export const TENANT_STATUSES = ['draft', 'awaiting_channel', 'awaiting_owner', 'active', 'suspended', 'cancelled'] as const
 export type TenantStatus = (typeof TENANT_STATUSES)[number]
 
 export const TENANT_PLANS = ['internal', 'basic', 'team'] as const

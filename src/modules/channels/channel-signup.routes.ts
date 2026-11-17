@@ -19,14 +19,17 @@ export interface ChannelSignupRoutesOptions {
 
 /**
  * /tenants/:tenantId/channels/signup: the company's admins connect a WhatsApp number themselves
- * («Conectar WhatsApp»). Admin only: it adds a number that the whole company answers from.
+ * («Conectar WhatsApp»). Admin only: it adds a number that the whole company answers from. These are
+ * the only routes a company waiting for its owner opens ('joining'): connecting its first number.
  */
 export const channelSignupRoutes: FastifyPluginCallback<ChannelSignupRoutesOptions> = (app, { db, signup, launch }, done) => {
-  app.get('/channels/signup', (request) => asAdmin(db, request, () => Promise.resolve(launch ? { available: true, ...launch } : { available: false })))
+  app.get('/channels/signup', (request) =>
+    asAdmin(db, request, () => Promise.resolve(launch ? { available: true, ...launch } : { available: false }), 'joining'),
+  )
 
   app.post('/channels/signup', async (request, reply) => {
     // Membership and role are proven first; Meta is called after, outside the company's transaction.
-    const tenantId = await asAdmin(db, request, (scope) => Promise.resolve(scope.tenantId))
+    const tenantId = await asAdmin(db, request, (scope) => Promise.resolve(scope.tenantId), 'joining')
     const result = await signup.connect(tenantId, parseInput(signupInput, request.body))
     return reply.code(201).send(result)
   })

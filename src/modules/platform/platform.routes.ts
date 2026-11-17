@@ -98,6 +98,10 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
   app.post('/tenants/:tenantId/invitations', async (request, reply) =>
     reply.code(201).send(await tenants.inviteAdmin(id(request.params), parseInput(adminInvitationInput, request.body), identityOf(request).userId)),
   )
+  // The owner connects the first number from their panel: invitation and «waiting for the owner» at once.
+  app.post('/tenants/:tenantId/owner-invitation', async (request, reply) =>
+    reply.code(201).send(await tenants.inviteOwner(id(request.params), parseInput(adminInvitationInput, request.body), identityOf(request).userId)),
+  )
   app.post('/tenants/:tenantId/invitations/:invitationId/renew', (request) => {
     const params = parseInput(invitationParams, request.params)
     return tenants.renewInvitation(params.tenantId, params.invitationId)

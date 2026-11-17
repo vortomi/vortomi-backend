@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database } from '../../db/client.ts'
-import { channelAccounts } from '../../db/schema/index.ts'
+import { channelAccounts, tenants } from '../../db/schema/index.ts'
 import { NumberNotInAccountError, NumberTakenError, fromMeta } from '../platform/channel-errors.ts'
 import { type TenantAdminService, WabaTakenError } from '../platform/tenant-admin-service.ts'
 import { type AppDataSync, type WabaDirectory, WhatsAppApiError } from '../whatsapp/cloud-api.client.ts'
@@ -52,10 +52,13 @@ export interface SignupResult {
   tokenExpiresAt: Date | null
   /** Contacts and chat history asked to the owner's app (coexistence only; once, within 24 h). */
   syncRequested: AppDataSync[]
+  /** The company was waiting for its owner and is live from now on. */
+  activated: boolean
 }
 
 interface Log {
   warn(obj: object, message: string): void
+  info(obj: object, message: string): void
 }
 
 /**
@@ -102,6 +105,7 @@ export class ChannelSignupService {
       tokenExpiresAt: grant.expiresAt,
     })
     await this.credentials.store(tenantId, channelId, token, pin)
+    const activated = await this.goLive(tenantId)
 
     // Without the subscription nothing arrives; the number is kept and the panel says so.
     const subscribed = await this.waba.subscribeApp(input.wabaId, token).then(
@@ -109,7 +113,29 @@ export class ChannelSignupService {
       () => false,
     )
     const syncRequested = details.onBusinessApp ? await this.requestSync(tenantId, input.phoneNumberId, token) : []
-    return { channelId, displayNumber: details.displayNumber || number.displayNumber, coexistence: details.onBusinessApp, subscribed, tokenExpiresAt: grant.expiresAt, syncRequested }
+    return {
+      channelId,
+      displayNumber: details.displayNumber || number.displayNumber,
+      coexistence: details.onBusinessApp,
+      subscribed,
+      tokenExpiresAt: grant.expiresAt,
+      syncRequested,
+      activated,
+    }
+  }
+
+  /**
+   * A company waiting for its owner goes live the moment its first number is in (decided 17 Nov 2026:
+   * nobody of ours has to activate it). Any other state is left as it is: a suspended company stays so.
+   */
+  private async goLive(tenantId: string): Promise<boolean> {
+    const rows = await this.db
+      .update(tenants)
+      .set({ status: 'active' })
+      .where(and(eq(tenants.id, tenantId), eq(tenants.status, 'awaiting_owner')))
+      .returning({ id: tenants.id })
+    if (rows.length) this.log.info({ tenantId }, 'Company went live: its owner connected the first number')
+    return rows.length > 0
   }
 
   /** The same number connected again (a new token) keeps its row: conversations stay with it. */

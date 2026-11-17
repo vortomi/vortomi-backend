@@ -42,6 +42,12 @@ export async function findActiveMember(scope: TenantScope, userId: string): Prom
 }
 
 /**
+ * Which companies a request may run in. 'working': only an active one (every screen). 'joining': also
+ * one waiting for its owner to connect the first number, for the few routes that do exactly that.
+ */
+export type CompanyStage = 'working' | 'joining'
+
+/**
  * withTenant() plus the proof that the caller belongs to that company. The
  * membership is read INSIDE the company's transaction, under its RLS, so the
  * answer can only come from that company's rows. Unknown company and foreign
@@ -52,13 +58,15 @@ export async function withMember<T>(
   tenantId: string,
   userId: string,
   work: (scope: MemberScope) => Promise<T>,
+  stage: CompanyStage = 'working',
 ): Promise<T> {
   return withTenant(db, tenantId, async (scope) => {
     const member = await findActiveMember(scope, userId)
     if (!member) throw new NotAMemberError()
     // Only after proving membership: an outsider learns nothing about the company's state.
     const [tenant] = await scope.tx.select({ status: tenants.status }).from(tenants).where(eq(tenants.id, scope.tenantId))
-    if (tenant?.status !== 'active') throw new CompanyUnavailableError()
+    const open = tenant?.status === 'active' || (stage === 'joining' && tenant?.status === 'awaiting_owner')
+    if (!open) throw new CompanyUnavailableError()
     // Who acts, for the history the database keeps by itself (pipeline moves). Local to this
     // transaction, like app.tenant_id: it never leaks to the next use of the connection.
     await scope.tx.execute(sql`select set_config('app.user_id', ${userId}, true)`)
