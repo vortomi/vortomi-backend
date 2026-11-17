@@ -17,6 +17,7 @@ import { UnknownBusinessTypeError } from '../modules/setup/setup-service.ts'
 import { NoChannelError, NotADraftError, NotDiscardableError, TenantNotFoundError, WabaTakenError } from '../modules/platform/tenant-admin-service.ts'
 import { TokenRequiredError } from '../modules/platform/channel-admin-service.ts'
 import { MetaRefusedError, NumberNotInAccountError, NumberTakenError } from '../modules/platform/channel-errors.ts'
+import { AlreadyPlatformAdminError, NotOnYourselfError, PlatformAdminNotFoundError } from '../modules/platform/platform-team-service.ts'
 import { ChannelNotFoundError } from '../modules/team/channel-list.ts'
 import { SignupCodeRejectedError, SignupGrantMismatchError, SignupUnavailableError } from '../modules/channels/channel-signup-service.ts'
 import {
@@ -65,6 +66,9 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [WabaTakenError, 409, 'waba_taken'],
   [NotDiscardableError, 409, 'not_discardable'],
   [NotADraftError, 409, 'not_a_draft'],
+  [AlreadyPlatformAdminError, 409, 'already_platform_admin'],
+  [PlatformAdminNotFoundError, 404, 'platform_admin_not_found'],
+  [NotOnYourselfError, 422, 'not_on_yourself'],
   [NumberTakenError, 409, 'phone_number_taken'],
   [NumberNotInAccountError, 422, 'number_not_in_account'],
   [TokenRequiredError, 422, 'token_required'],
@@ -128,6 +132,7 @@ const CONSTRAINT_CONFLICTS: Record<string, string> = {
   product_categories_tenant_name_key: 'category_name_taken',
   products_category_fk: 'category_in_use',
   invitations_open_email_key: 'invitation_exists',
+  platform_invitations_open_email_key: 'invitation_exists',
   membership_channels_channel_fk: 'unknown_channel',
   users_email_unique: 'email_in_use',
   channel_accounts_phone_number_id_unique: 'phone_number_taken',

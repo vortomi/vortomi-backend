@@ -1,4 +1,3 @@
-import { createHash, randomBytes } from 'node:crypto'
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database, Executor } from '../../db/client.ts'
@@ -6,9 +5,7 @@ import { MEMBER_ROLES } from '../../db/schema/enums.ts'
 import { channelAccounts, invitations, membershipChannels, memberships, tenants, users } from '../../db/schema/index.ts'
 import type { MemberScope } from '../access/member-scope.ts'
 import type { VerifiedIdentity } from '../access/identity.ts'
-
-/** How long an invitation link works (documentations/03). */
-const INVITATION_TTL_MS = 72 * 3_600_000
+import { hashOf, invitationExpiry, newToken } from './invitation-token.ts'
 
 export class InvitationNotFoundError extends Error {
   constructor() {
@@ -54,10 +51,6 @@ export const invitationInput = z.object({
 })
 export type InvitationInput = z.infer<typeof invitationInput>
 
-/** The link token: 256 random bits. Only its hash is stored. */
-const newToken = () => randomBytes(32).toString('base64url')
-const hashOf = (token: string) => createHash('sha256').update(token).digest('hex')
-const expiry = () => new Date(Date.now() + INVITATION_TTL_MS)
 
 const listColumns = {
   id: invitations.id,
@@ -126,7 +119,7 @@ export class InvitationService {
         // Admins always see every conversation of their company.
         canSeeOthers: input.role === 'admin' || input.canSeeOthers,
         tokenHash: hashOf(token),
-        expiresAt: expiry(),
+        expiresAt: invitationExpiry(),
         invitedBy,
       })
       .returning(listColumns)
@@ -138,7 +131,7 @@ export class InvitationService {
     const token = newToken()
     const [row] = await exec
       .update(invitations)
-      .set({ tokenHash: hashOf(token), expiresAt: expiry() })
+      .set({ tokenHash: hashOf(token), expiresAt: invitationExpiry() })
       .where(and(eq(invitations.tenantId, tenantId), eq(invitations.id, id), open))
       .returning(listColumns)
     if (!row) throw new InvitationNotFoundError()

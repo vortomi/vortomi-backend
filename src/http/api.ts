@@ -23,6 +23,9 @@ import { inventoryRoutes } from '../modules/inventory/inventory.routes.ts'
 import { UsageService } from '../modules/usage/usage-service.ts'
 import { usageRoutes } from '../modules/usage/usage.routes.ts'
 import { platformRoutes } from '../modules/platform/platform.routes.ts'
+import { type AuthenticatorFactors, SupabaseAuthenticatorFactors } from '../modules/platform/authenticator-factors.ts'
+import { PlatformTeamService } from '../modules/platform/platform-team-service.ts'
+import { platformInvitationRoutes, publicPlatformInvitationRoutes } from '../modules/platform/platform-team.routes.ts'
 import { TenantAdminService } from '../modules/platform/tenant-admin-service.ts'
 import { ChannelAdminService } from '../modules/platform/channel-admin-service.ts'
 import { InvitationService } from '../modules/team/invitation-service.ts'
@@ -77,6 +80,7 @@ export interface ApiOptions {
   catalogs?: Pick<CatalogSources, 'systemRate'>
   agent: { modelReady: boolean; monthlyCap: number }
   signup?: { exchange: BusinessTokenExchange; launch: SignupLaunch }
+  authenticatorFactors?: AuthenticatorFactors
 }
 
 const COMPANY = '/tenants/:tenantId'
@@ -88,13 +92,14 @@ const COMPANY = '/tenants/:tenantId'
 export const publicApiRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => {
   installErrorHandler(app, toApiError)
   await app.register(publicInvitationRoutes, { invitations: new InvitationService(db) })
+  await app.register(publicPlatformInvitationRoutes, { team: new PlatformTeamService(db, new SupabaseAuthenticatorFactors(db)) })
 }
 
 /**
  * The panel's API (/api). Everything in here requires a verified Supabase session;
  * company data is only reached through inCompany() (membership + withTenant).
  */
-export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent, signup }) => {
+export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent, signup, authenticatorFactors }) => {
   installErrorHandler(app, toApiError)
   app.decorateRequest('identity', null)
   app.addHook('onRequest', authenticate(verifier))
@@ -109,7 +114,9 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   const businessTypes = new BusinessTypeService(db)
   await app.register(businessTypeRoutes, { types: businessTypes })
   const channelAdmin = new ChannelAdminService(db, credentials, wabaDirectory, tenantAdmin)
-  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage, types: businessTypes, channels: channelAdmin })
+  const platformTeam = new PlatformTeamService(db, authenticatorFactors ?? new SupabaseAuthenticatorFactors(db))
+  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage, types: businessTypes, channels: channelAdmin, team: platformTeam })
+  await app.register(platformInvitationRoutes, { team: platformTeam })
   await app.register(usageRoutes, { prefix: COMPANY, db, usage })
   await app.register(conversationRoutes, {
     prefix: `${COMPANY}/conversations`,

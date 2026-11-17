@@ -9,6 +9,8 @@ import { type BusinessTypeService, newTypeInput, reclassifyInput } from '../setu
 import { type UsageService, monthParam } from '../usage/usage-service.ts'
 import { type TenantAdminService, adminInvitationInput, channelInput, lookupInput, tenantInput, tenantStatusInput } from './tenant-admin-service.ts'
 import { type ChannelAdminService, channelLookupInput, replaceNumberInput } from './channel-admin-service.ts'
+import type { PlatformTeamService } from './platform-team-service.ts'
+import { platformTeamRoutes } from './platform-team.routes.ts'
 
 export interface PlatformRoutesOptions {
   directory: AccessDirectory
@@ -17,6 +19,7 @@ export interface PlatformRoutesOptions {
   usage: UsageService
   types: BusinessTypeService
   channels: ChannelAdminService
+  team: PlatformTeamService
 }
 
 const tenantParams = z.object({ tenantId: z.uuid() })
@@ -29,7 +32,7 @@ const sinceQuery = z.object({ since: z.iso.datetime({ offset: true }) })
  * session signed in with the second factor (documentations/04, D12): this console
  * reaches every company, so a stolen password alone must not open it.
  */
-export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types, channels }, done) => {
+export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types, channels, team }, done) => {
   app.addHook('preHandler', async (request) => {
     const identity = identityOf(request)
     const account = await directory.findAccount(identity.userId)
@@ -38,6 +41,9 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
   })
 
   const id = (params: unknown) => parseInput(tenantParams, params).tenantId
+
+  // Who enters this console: under the same guard as everything here.
+  void app.register(platformTeamRoutes, { team })
 
   app.get('/tenants', async () => ({ tenants: await tenants.list() }))
 

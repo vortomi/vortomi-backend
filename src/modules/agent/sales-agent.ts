@@ -165,7 +165,7 @@ export class SalesAgent {
       select distinct m.tenant_id, m.conversation_id
       from ${messages} m
       join ${tenants} t on t.id = m.tenant_id and t.status = 'active'
-      where m.direction = 'in' and m.created_at > ${since}
+      where m.direction = 'in' and m.created_at > ${since.toISOString()}::timestamptz
         and not exists (
           select 1 from ${messages} later
           where later.tenant_id = m.tenant_id and later.conversation_id = m.conversation_id and later.id > m.id

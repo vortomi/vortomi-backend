@@ -22,6 +22,7 @@ import { BcvRateService } from '../../src/modules/exchange-rates/bcv-rate.servic
 import { BcvReadError, type BcvSource } from '../../src/modules/exchange-rates/bcv-source.ts'
 import { InboxFeed } from '../../src/modules/realtime/inbox-feed.ts'
 import { testVerifier } from './auth.ts'
+import type { AuthenticatorFactors } from '../../src/modules/platform/authenticator-factors.ts'
 import { APP_SECRET, VERIFY_TOKEN } from './meta-payloads.ts'
 
 /** Ids never repeat across senders of a test file: Meta's ids are unique, and messages keep them. */
@@ -111,6 +112,22 @@ export class FakeWabaDirectory implements WabaDirectory {
   }
 }
 
+/** Stands in for Supabase Auth's authenticator codes: who set one up, and resets. */
+export class FakeAuthenticatorFactors implements AuthenticatorFactors {
+  readonly withCodes = new Set<string>()
+  readonly resets: string[] = []
+
+  withCode(userIds: string[]): Promise<Set<string>> {
+    return Promise.resolve(new Set(userIds.filter((id) => this.withCodes.has(id))))
+  }
+
+  reset(userId: string): Promise<void> {
+    this.resets.push(userId)
+    this.withCodes.delete(userId)
+    return Promise.resolve()
+  }
+}
+
 /** Stands in for bcv.org.ve: answers `next`, a rate or the reason it could not be read. */
 export class FakeBcvSource implements BcvSource {
   next: BcvRate | string = 'la página del BCV no respondió.'
@@ -141,6 +158,8 @@ export function buildTestApp(db: Database, overrides: Partial<AppDependencies> =
       wabaDirectory: new FakeWabaDirectory(),
       feed: new InboxFeed(),
       bcv: new BcvRateService(db, new FakeBcvSource(), silentLog),
+      // PGlite has no Supabase auth schema: the codes live in memory here.
+      authenticatorFactors: new FakeAuthenticatorFactors(),
       ...overrides,
     },
     false,

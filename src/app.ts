@@ -11,6 +11,7 @@ import type { TemplateRegistry, WabaDirectory, WhatsAppSender } from './modules/
 import { webhookRoutes } from './modules/whatsapp/webhook.routes.ts'
 import type { BusinessTokenExchange } from './modules/whatsapp/meta-oauth.client.ts'
 import type { SignupLaunch } from './modules/channels/channel-signup.routes.ts'
+import type { AuthenticatorFactors } from './modules/platform/authenticator-factors.ts'
 
 export interface AppDependencies {
   db: Database
@@ -32,6 +33,8 @@ export interface AppDependencies {
   agent?: { modelReady: boolean; monthlyCap: number }
   /** «Conectar WhatsApp» (Embedded Signup); without it the panel does not offer the button. */
   signup?: { exchange: BusinessTokenExchange; launch: SignupLaunch }
+  /** Our console admins' authenticator codes (Supabase Auth); defaults to reading its schema directly. */
+  authenticatorFactors?: AuthenticatorFactors
 }
 
 /** Secrets and signatures must never reach the logs. */
@@ -88,6 +91,7 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     ...(deps.catalogs ? { catalogs: deps.catalogs } : {}),
     agent: deps.agent ?? { modelReady: false, monthlyCap: 1000 },
     ...(deps.signup ? { signup: deps.signup } : {}),
+    ...(deps.authenticatorFactors ? { authenticatorFactors: deps.authenticatorFactors } : {}),
   })
 
   return app

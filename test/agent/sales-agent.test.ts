@@ -3,6 +3,8 @@
 // the customer wants to buy or when something fails; answers each message once. The model is a fake:
 // these tests check our rules, not Google's model.
 import { and, eq } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/pglite'
+import * as schema from '../../src/db/schema/index.ts'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { agentSettings, agentUsage, conversations, exchangeRates, messages, productVariants, products, tenantSettings } from '../../src/db/schema/index.ts'
 import type { ChatModel, ChatReply, ChatRequest } from '../../src/modules/agent/chat-model.ts'
@@ -269,6 +271,14 @@ describe('never losing or doubling an answer', () => {
     expect(await botMessages(conversationId)).toEqual([])
     await agent.drain(5_000)
     expect(await botMessages(conversationId)).toEqual([{ body: model.answer }])
+  })
+
+  it('the restart query sends no raw Date to the driver (postgres-js rejects it inside sql``; PGlite does not)', async () => {
+    const params: unknown[] = []
+    const logged = drizzle(t.client, { schema, logger: { logQuery: (_query, values) => void params.push(...values) } })
+    await new SalesAgent(logged, new BotDelivery(logged, credentials, sender), model, { monthlyCap: 1000, debounceMs: 60_000, log: silentLog, now: () => NOW }).resumePending()
+    expect(params.length).toBeGreaterThan(0)
+    expect(params.filter((value) => value instanceof Date)).toEqual([])
   })
 
   it('after a restart, the messages left unanswered in the last minutes are answered', async () => {
