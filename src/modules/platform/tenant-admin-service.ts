@@ -131,6 +131,8 @@ export class TenantAdminService {
           phoneNumberId: channelAccounts.phoneNumberId,
           wabaId: channelAccounts.wabaId,
           status: channelAccounts.status,
+          statusReason: channelAccounts.statusReason,
+          tokenExpiresAt: channelAccounts.tokenExpiresAt,
           // Whether it can send: the token itself never leaves the server.
           hasToken: sql<boolean>`exists (select 1 from ${channelCredentials} cc where cc.channel_account_id = ${channelAccounts.id})`,
         })

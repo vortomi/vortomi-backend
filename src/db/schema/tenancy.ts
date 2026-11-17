@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { boolean, check, index, integer, pgTable, text, unique, uniqueIndex } from 'drizzle-orm/pg-core'
 import { createdAtColumn, oneOf, tenantIdColumn, timestamptz, uuidIdColumn } from './columns.ts'
-import { CHANNEL_STATUSES, SELLS, SELL_METHODS, TENANT_PLANS, TENANT_STATUSES } from './enums.ts'
+import { CHANNEL_STATUSES, CHANNEL_STATUS_REASONS, SELLS, SELL_METHODS, TENANT_PLANS, TENANT_STATUSES } from './enums.ts'
 
 /**
  * The business types a company picks from (block C): one closed list for the welcome, the
@@ -75,6 +75,9 @@ export const channelAccounts = pgTable(
     displayNumber: text('display_number').notNull(),
     label: text('label').notNull(),
     status: text('status', { enum: CHANNEL_STATUSES }).notNull().default('connected'),
+    // Why it is disconnected or restricted (Meta's account_update), and since when; null while connected.
+    statusReason: text('status_reason', { enum: CHANNEL_STATUS_REASONS }),
+    statusChangedAt: timestamptz('status_changed_at'),
     // Also on the owner's WhatsApp Business app (Meta's coexistence): the owner sees and answers there too.
     coexistence: boolean('coexistence').notNull().default(false),
     // When the stored token stops working (a number connected with «Conectar WhatsApp» gets a 60-day
@@ -87,6 +90,7 @@ export const channelAccounts = pgTable(
     unique('channel_accounts_tenant_id_id_key').on(t.tenantId, t.id),
     index('channel_accounts_tenant_idx').on(t.tenantId),
     check('channel_accounts_status_check', oneOf(t.status, CHANNEL_STATUSES)),
+    check('channel_accounts_status_reason_check', oneOf(t.statusReason, CHANNEL_STATUS_REASONS)),
     check('channel_accounts_phone_number_id_check', sql`${t.phoneNumberId} ~ '^[0-9]+$'`),
   ],
 )

@@ -27,14 +27,18 @@ export interface BotDraft extends BotTarget {
   image?: ImageMessage['image']
 }
 
-export async function findTarget(tx: Executor, tenantId: string, conversationId: string): Promise<BotTarget | null> {
+export async function findTarget(tx: Executor, tenantId: string, conversationId: string, answering = false): Promise<BotTarget | null> {
   const [target] = await tx
-    .select({ channelAccountId: contacts.channelAccountId, phoneNumberId: channelAccounts.phoneNumberId, to: contacts.waId })
+    .select({ channelAccountId: contacts.channelAccountId, phoneNumberId: channelAccounts.phoneNumberId, to: contacts.waId, status: channelAccounts.status })
     .from(conversations)
     .innerJoin(contacts, and(eq(contacts.tenantId, conversations.tenantId), eq(contacts.id, conversations.contactId)))
     .innerJoin(channelAccounts, and(eq(channelAccounts.tenantId, contacts.tenantId), eq(channelAccounts.id, contacts.channelAccountId)))
     .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
-  return target ?? null
+  if (!target) return null
+  // An automatic answer over a disconnected number would only fail at Meta, message after message.
+  if (answering && target.status === 'disconnected') return null
+  const { status: _status, ...route } = target
+  return route
 }
 
 /**

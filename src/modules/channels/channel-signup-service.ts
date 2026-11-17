@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database } from '../../db/client.ts'
 import { channelAccounts } from '../../db/schema/index.ts'
@@ -126,7 +126,8 @@ export class ChannelSignupService {
     if (existing) {
       await this.db
         .update(channelAccounts)
-        .set({ ...changes, wabaId: input.wabaId, status: 'connected' })
+        // Connected again: whatever cut it before (the owner, Meta) no longer applies.
+        .set({ ...changes, wabaId: input.wabaId, status: 'connected', statusReason: null, statusChangedAt: sql`now()` })
         .where(eq(channelAccounts.id, existing.id))
       return existing.id
     }

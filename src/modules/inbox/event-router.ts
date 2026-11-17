@@ -1,4 +1,5 @@
 import type { Database } from '../../db/client.ts'
+import { ChannelStatusService } from '../channels/channel-status.ts'
 import type { IngestService } from '../conversations/ingest.service.ts'
 import type { MessageStatusService } from '../conversations/message-status.service.ts'
 import { OwnerAppIngest } from '../conversations/owner-app-ingest.ts'
@@ -6,7 +7,7 @@ import type { AutoResponder } from '../messaging/auto-responder.ts'
 import type { TemplateService } from '../templates/template-service.ts'
 import type { ChannelDirectory } from '../tenancy/channel-directory.ts'
 import { withTenant } from '../tenancy/tenant-scope.ts'
-import type { NumberEvent, TemplateStatusEvent, WhatsAppEvent } from '../whatsapp/events.ts'
+import type { AccountUpdateEvent, NumberEvent, TemplateStatusEvent, WhatsAppEvent } from '../whatsapp/events.ts'
 import type { EventOutcome, WhatsAppEventHandler } from './webhook-processor.ts'
 
 /**
@@ -26,10 +27,21 @@ export class EventRouter implements WhatsAppEventHandler {
     private readonly autoReply: Pick<AutoResponder, 'afterInbound'> | null = null,
     // What the owner does on the WhatsApp Business app of a coexistence number.
     private readonly ownerApp = new OwnerAppIngest(),
+    // Disconnections, bans and restrictions of a company's WhatsApp account.
+    private readonly channelStatus = new ChannelStatusService(db),
   ) {}
 
   handle(event: WhatsAppEvent): Promise<EventOutcome> {
-    return event.kind === 'template_status' ? this.handleTemplate(event) : this.handleNumberEvent(event)
+    if (event.kind === 'template_status') return this.handleTemplate(event)
+    if (event.kind === 'account_update') return this.handleAccount(event)
+    return this.handleNumberEvent(event)
+  }
+
+  private async handleAccount(event: AccountUpdateEvent): Promise<EventOutcome> {
+    const tenantId = await this.channels.resolveWaba(event.wabaId)
+    if (!tenantId) return 'unroutable'
+    await this.channelStatus.apply(tenantId, event)
+    return 'handled'
   }
 
   private async handleNumberEvent(event: NumberEvent): Promise<EventOutcome> {

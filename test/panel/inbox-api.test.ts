@@ -216,7 +216,7 @@ describe('channels', () => {
   it('lists this company numbers, without any credential', async () => {
     const { items } = (await call(who.carlos, 'GET', '/channels')).json<{ items: Record<string, unknown>[] }>()
     expect(items.map((c) => c['label']).sort()).toEqual(['Taller', 'Ventas'])
-    expect(Object.keys(items[0]!).sort()).toEqual(['coexistence', 'displayNumber', 'id', 'label', 'phoneNumberId', 'status', 'tokenExpiresAt', 'wabaId'])
+    expect(Object.keys(items[0]!).sort()).toEqual(['coexistence', 'displayNumber', 'id', 'label', 'phoneNumberId', 'status', 'statusChangedAt', 'statusReason', 'tokenExpiresAt', 'wabaId'])
   })
 })
 

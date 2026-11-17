@@ -308,7 +308,7 @@ export class SalesAgent {
       .where(eq(exchangeRates.tenantId, tenantId))
       .orderBy(desc(exchangeRates.createdAt))
       .limit(1)
-    const target = await findTarget(tx, tenantId, conversationId)
+    const target = await findTarget(tx, tenantId, conversationId, true)
     if (!target) return null
     const hours = company.hours ?? []
     const firstAnswered = recent.findIndex((m) => m.direction === 'out')

@@ -13,6 +13,9 @@ export function listChannels(scope: MemberScope) {
       phoneNumberId: channelAccounts.phoneNumberId,
       wabaId: channelAccounts.wabaId,
       status: channelAccounts.status,
+      // Why it is not connected (the owner disconnected it, Meta restricted it...), and since when.
+      statusReason: channelAccounts.statusReason,
+      statusChangedAt: channelAccounts.statusChangedAt,
       coexistence: channelAccounts.coexistence,
       tokenExpiresAt: channelAccounts.tokenExpiresAt,
     })

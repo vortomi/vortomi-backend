@@ -130,12 +130,15 @@ describe('connecting the owner\'s WhatsApp Business app number (coexistence)', (
   })
 
   it('connecting it again renews the token on the same row instead of adding it twice', async () => {
+    // The owner had disconnected it from the phone: connecting again clears that.
+    await t.db.update(channelAccounts).set({ status: 'disconnected', statusReason: 'owner_disconnected' }).where(eq(channelAccounts.phoneNumberId, COEXISTENCE_NUMBER))
     exchange.grant = { ...exchange.grant, expiresAt: new Date('2027-03-01T00:00:00Z') }
     const again = await connect(COEXISTENCE_NUMBER)
     expect(again.statusCode).toBe(201)
     const rows = await t.db.select().from(channelAccounts).where(eq(channelAccounts.phoneNumberId, COEXISTENCE_NUMBER))
     expect(rows).toHaveLength(1)
     expect(rows[0]!.tokenExpiresAt).toEqual(new Date('2027-03-01T00:00:00Z'))
+    expect(rows[0]).toMatchObject({ status: 'connected', statusReason: null })
   })
 })
 

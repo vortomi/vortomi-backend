@@ -13,6 +13,26 @@ export type TenantPlan = (typeof TENANT_PLANS)[number]
 export const CHANNEL_STATUSES = ['connected', 'disconnected', 'restricted'] as const
 export type ChannelStatus = (typeof CHANNEL_STATUSES)[number]
 
+/**
+ * Why a number is not connected, from Meta's account_update webhook:
+ * owner_disconnected: the owner disconnected Vortomi from the WhatsApp Business app;
+ * number_changed: the number was re-registered, moved or changed device;
+ * inactive: the phone (or a companion) was not opened for too long;
+ * access_removed: our access to the account was removed for another reason;
+ * banned / ban_scheduled / restricted: Meta's enforcement; account_deleted: the account is gone.
+ */
+export const CHANNEL_STATUS_REASONS = [
+  'owner_disconnected',
+  'number_changed',
+  'inactive',
+  'access_removed',
+  'banned',
+  'ban_scheduled',
+  'restricted',
+  'account_deleted',
+] as const
+export type ChannelStatusReason = (typeof CHANNEL_STATUS_REASONS)[number]
+
 export const CONVERSATION_STATUSES = ['open', 'resolved'] as const
 export type ConversationStatus = (typeof CONVERSATION_STATUSES)[number]
 

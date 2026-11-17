@@ -1,7 +1,7 @@
 import type { ParseResult, StatusUpdateEvent } from './events.ts'
 import { fromUnixSeconds, isDeliveryStatus, toContent } from './message-content.ts'
 import { parseContactSync, parseEchoes, parseHistory } from './owner-app-parser.ts'
-import { contactSchema, envelopeSchema, messageSchema, statusSchema, templateStatusSchema } from './payload.schema.ts'
+import { accountUpdateSchema, contactSchema, envelopeSchema, messageSchema, statusSchema, templateStatusSchema } from './payload.schema.ts'
 
 /** Fields about a number (routed by its phone_number_id); others are ignored. */
 const NUMBER_FIELDS = new Set(['messages', 'smb_message_echoes', 'history', 'smb_app_state_sync'])
@@ -36,6 +36,25 @@ export function parseWebhookPayload(payload: unknown): ParseResult {
           metaTemplateId: template.data.message_template_id,
           event: template.data.event.toUpperCase(),
           reason: reason && reason !== 'NONE' ? reason : null,
+        })
+        continue
+      }
+      if (change.field === 'account_update') {
+        const update = accountUpdateSchema.safeParse(change.value)
+        // The account named in waba_info when there is one (partner events), else the entry's.
+        const wabaId = update.success ? (update.data.waba_info?.waba_id ?? entry.id) : undefined
+        if (!update.success || !wabaId || !/^\d+$/.test(wabaId)) {
+          result.skipped.push('invalid_account_update')
+          continue
+        }
+        const { event, disconnection_info: disconnection, ban_info: ban, restriction_info: restrictions } = update.data
+        result.events.push({
+          kind: 'account_update',
+          wabaId,
+          event: event.toUpperCase(),
+          disconnection: disconnection ? { reason: disconnection.reason ?? null, initiatedBy: disconnection.initiated_by ?? null } : null,
+          banState: ban?.waba_ban_state?.toUpperCase() ?? null,
+          restrictions: restrictions ? restrictions.length : null,
         })
         continue
       }

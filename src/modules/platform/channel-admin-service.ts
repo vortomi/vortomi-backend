@@ -104,7 +104,7 @@ export class ChannelAdminService {
     const [updated] = await this.db
       .update(channelAccounts)
       // A token typed in the console has no known expiry: an older one's date would warn for nothing.
-      .set({ wabaId: input.wabaId, phoneNumberId: input.phoneNumberId, displayNumber: number.displayNumber, status: 'connected', ...(input.accessToken ? { tokenExpiresAt: null } : {}) })
+      .set({ wabaId: input.wabaId, phoneNumberId: input.phoneNumberId, displayNumber: number.displayNumber, status: 'connected', statusReason: null, ...(input.accessToken ? { tokenExpiresAt: null } : {}) })
       .where(eq(channelAccounts.id, channel.id))
       .returning({ id: channelAccounts.id, displayNumber: channelAccounts.displayNumber })
     if (input.accessToken) await this.credentials.store(tenantId, channel.id, input.accessToken)

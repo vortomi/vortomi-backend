@@ -87,7 +87,7 @@ export class AwayReplyService {
       .limit(1)
     if (recent) return null
 
-    const target = await findTarget(tx, tenantId, trigger.conversationId)
+    const target = await findTarget(tx, tenantId, trigger.conversationId, true)
     if (!target) return null
 
     const body = company.awayMessage.trim()

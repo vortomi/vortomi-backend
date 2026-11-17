@@ -1,0 +1,3 @@
+ALTER TABLE "channel_accounts" ADD COLUMN "status_reason" text;--> statement-breakpoint
+ALTER TABLE "channel_accounts" ADD COLUMN "status_changed_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "channel_accounts" ADD CONSTRAINT "channel_accounts_status_reason_check" CHECK ("channel_accounts"."status_reason" in ('owner_disconnected', 'number_changed', 'inactive', 'access_removed', 'banned', 'ban_scheduled', 'restricted', 'account_deleted'));

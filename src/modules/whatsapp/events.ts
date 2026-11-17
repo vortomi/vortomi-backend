@@ -85,19 +85,39 @@ export interface ContactSyncEvent {
   contacts: { waId: string; fullName: string | null; action: 'add' | 'remove'; timestamp: Date }[]
 }
 
+/**
+ * Something happened to a WhatsApp Business Account (account_update): the owner disconnected it from
+ * the WhatsApp Business app, Meta restricted or disabled it, it was deleted or reconnected. Routed
+ * by the account, like templates.
+ */
+export interface AccountUpdateEvent {
+  kind: 'account_update'
+  wabaId: string
+  /** Meta's event, upper case: PARTNER_REMOVED, DISABLED_UPDATE, ACCOUNT_RESTRICTION... */
+  event: string
+  /** PARTNER_REMOVED of a coexistence number: why (ACCOUNT_DISCONNECTED, CHANGE_NUMBER...) and who (USER, SYSTEM). */
+  disconnection: { reason: string | null; initiatedBy: string | null } | null
+  /** DISABLED_UPDATE: DISABLE, REINSTATE, SCHEDULE_FOR_DISABLE... */
+  banState: string | null
+  /** ACCOUNT_RESTRICTION: how many restrictions are in force (0 = lifted). */
+  restrictions: number | null
+}
+
 /** Events about a number's messages, routed by phone_number_id. */
 export type NumberEvent = InboundMessageEvent | StatusUpdateEvent | OwnerEchoEvent | HistoryChunkEvent | ContactSyncEvent
 
-export type WhatsAppEvent = NumberEvent | TemplateStatusEvent
+export type WhatsAppEvent = NumberEvent | TemplateStatusEvent | AccountUpdateEvent
 
 /** What identifies an event's owner in logs and notes ("unroutable: ..."). */
 export const routingKeyOf = (event: WhatsAppEvent): string =>
-  event.kind === 'template_status' ? `waba ${event.wabaId}` : event.phoneNumberId
+  event.kind === 'template_status' || event.kind === 'account_update' ? `waba ${event.wabaId}` : event.phoneNumberId
 
 export const eventIdOf = (event: WhatsAppEvent): string => {
   switch (event.kind) {
     case 'template_status':
       return `template ${event.metaTemplateId}`
+    case 'account_update':
+      return `account ${event.event}`
     case 'history_chunk':
       return `history ${event.phase}/${event.chunkOrder}`
     case 'contact_sync':
@@ -121,6 +141,7 @@ export type SkipReason =
   /** The owner turned off sharing the chat history in the WhatsApp Business app (Meta 2593109). */
   | 'history_declined'
   | 'invalid_contact_sync'
+  | 'invalid_account_update'
 
 export interface ParseResult {
   events: WhatsAppEvent[]

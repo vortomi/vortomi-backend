@@ -449,6 +449,13 @@
       "when": 1794928794263,
       "tag": "0063_human_pause",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1794929812454,
+      "tag": "0064_channel_status_reason",
+      "breakpoints": true
     }
   ]
 }

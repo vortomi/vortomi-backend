@@ -76,6 +76,17 @@ export const statusSchema = z.object({
   errors: z.array(z.object({ code: z.number().optional(), title: z.string().optional() })).optional(),
 })
 
+/** value of an account_update change (Meta webhook reference); only what Vortomi acts on. */
+export const accountUpdateSchema = z
+  .object({
+    event: z.string().min(1),
+    waba_info: z.object({ waba_id: z.string().regex(/^\d+$/).optional() }).loose().optional(),
+    disconnection_info: z.object({ reason: z.string().optional(), initiated_by: z.string().optional() }).loose().optional(),
+    ban_info: z.object({ waba_ban_state: z.string().optional() }).loose().optional(),
+    restriction_info: z.array(z.unknown()).optional(),
+  })
+  .loose()
+
 /** value of a message_template_status_update change (Meta webhook reference). */
 export const templateStatusSchema = z.object({
   event: z.string().min(1),
