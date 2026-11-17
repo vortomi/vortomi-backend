@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm'
 import { contacts, messages } from '../../db/schema/index.ts'
 import type { TenantScope } from '../tenancy/tenant-scope.ts'
 import type { ContactSyncEvent, HistoryChunkEvent, OwnerEchoEvent } from '../whatsapp/events.ts'
-import { pauseForOwner } from './agent-handoff.ts'
+import { pauseAgent } from './agent-handoff.ts'
 import { touchConversation, upsertContact, upsertConversation } from './conversation-upsert.ts'
 
 /**
@@ -36,7 +36,7 @@ export class OwnerAppIngest {
     if (isNew) {
       await touchConversation(scope, conversationId, event.timestamp)
       // The owner is answering: the agent leaves this conversation to them for a while.
-      await pauseForOwner(scope, conversationId, event.timestamp)
+      await pauseAgent(scope, conversationId, event.timestamp, null)
     }
     return { isNew, conversationId }
   }

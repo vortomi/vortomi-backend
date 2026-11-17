@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { channelCredentials, messages } from '../../src/db/schema/index.ts'
+import { channelCredentials, conversations, messages } from '../../src/db/schema/index.ts'
 import type { ChannelCredentials } from '../../src/modules/channels/channel-credentials.ts'
 import { IngestService } from '../../src/modules/conversations/ingest.service.ts'
 import { MessageStatusService } from '../../src/modules/conversations/message-status.service.ts'
@@ -97,6 +97,14 @@ describe('sending a reply', () => {
     expect(sender.sent).toEqual([{ phoneNumberId: a.phoneNumberId, accessToken: TOKEN_A, to: '584120000001', body: 'Sí, las tenemos' }])
     const [latest] = await messagesOf(who.laura, chats.open)
     expect(latest).toMatchObject({ direction: 'out', body: 'Sí, las tenemos', authorUserId: who.laura, status: 'pending', clientMessageId })
+    // Laura is answering: the agent leaves the conversation to her for the company's waiting time (30 min).
+    const [paused] = await t.db
+      .select({ until: conversations.agentPausedUntil, by: conversations.agentPausedByUserId })
+      .from(conversations)
+      .where(eq(conversations.id, chats.open))
+    expect(paused!.by).toBe(who.laura)
+    expect(paused!.until!.getTime() - Date.now()).toBeGreaterThan(29 * 60_000)
+    expect(paused!.until!.getTime() - Date.now()).toBeLessThanOrEqual(30 * 60_000)
   })
 
   it('a retried request (same clientMessageId) answers the same and sends nothing', async () => {

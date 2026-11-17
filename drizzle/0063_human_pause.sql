@@ -1,0 +1,4 @@
+ALTER TABLE "agent_settings" ADD COLUMN "human_pause_minutes" integer DEFAULT 30 NOT NULL;--> statement-breakpoint
+ALTER TABLE "conversations" ADD COLUMN "agent_paused_by_user_id" uuid;--> statement-breakpoint
+ALTER TABLE "conversations" ADD CONSTRAINT "conversations_paused_by_fk" FOREIGN KEY ("tenant_id","agent_paused_by_user_id") REFERENCES "public"."memberships"("tenant_id","user_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "agent_settings" ADD CONSTRAINT "agent_settings_human_pause_minutes_check" CHECK ("agent_settings"."human_pause_minutes" in (5, 10, 15, 30, 60));

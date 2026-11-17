@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { AGENT_SCHEDULES, AGENT_TONES, type AgentSchedule, type AgentTone } from '../../db/schema/enums.ts'
+import { AGENT_SCHEDULES, AGENT_TONES, DEFAULT_HUMAN_PAUSE_MINUTES, HUMAN_PAUSE_MINUTES, type AgentSchedule, type AgentTone, type HumanPauseMinutes } from '../../db/schema/enums.ts'
 import { agentSettings, agentUsage } from '../../db/schema/index.ts'
 import type { MemberScope } from '../access/member-scope.ts'
 import { monthOf } from './sales-agent.ts'
@@ -11,6 +11,11 @@ export const agentSettingsInput = z.object({
   tone: z.enum(AGENT_TONES),
   schedule: z.enum(AGENT_SCHEDULES),
   businessInfo: z.string().trim().max(4000),
+  // Only the listed choices (5 minutes to 1 hour); older panels that do not send it keep 30.
+  humanPauseMinutes: z
+    .number()
+    .refine((m): m is HumanPauseMinutes => (HUMAN_PAUSE_MINUTES as readonly number[]).includes(m))
+    .default(DEFAULT_HUMAN_PAUSE_MINUTES),
 })
 export type AgentSettingsInput = z.infer<typeof agentSettingsInput>
 
@@ -21,13 +26,15 @@ export interface AgentSettingsView {
   tone: AgentTone
   schedule: AgentSchedule
   businessInfo: string
+  /** Minutes the agent waits after someone of the company writes in a conversation. */
+  humanPauseMinutes: number
   /** False when the platform has no model configured: the agent cannot answer anywhere. */
   modelReady: boolean
   /** This month's answers against the monthly cap. */
   usage: { replies: number; cap: number }
 }
 
-const DEFAULTS = { enabled: false, assistantName: 'Asistente', tone: 'friendly', schedule: 'always', businessInfo: '' } as const
+const DEFAULTS = { enabled: false, assistantName: 'Asistente', tone: 'friendly', schedule: 'always', businessInfo: '', humanPauseMinutes: DEFAULT_HUMAN_PAUSE_MINUTES } as const
 
 /** A company's sales agent settings. Admins only (the routes check it). */
 export class AgentSettingsService {
@@ -39,7 +46,14 @@ export class AgentSettingsService {
 
   async view(scope: MemberScope): Promise<AgentSettingsView> {
     const [row] = await scope.tx
-      .select({ enabled: agentSettings.enabled, assistantName: agentSettings.assistantName, tone: agentSettings.tone, schedule: agentSettings.schedule, businessInfo: agentSettings.businessInfo })
+      .select({
+        enabled: agentSettings.enabled,
+        assistantName: agentSettings.assistantName,
+        tone: agentSettings.tone,
+        schedule: agentSettings.schedule,
+        businessInfo: agentSettings.businessInfo,
+        humanPauseMinutes: agentSettings.humanPauseMinutes,
+      })
       .from(agentSettings)
       .where(eq(agentSettings.tenantId, scope.tenantId))
     const [usage] = await scope.tx

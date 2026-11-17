@@ -125,6 +125,11 @@ export type AgentTone = (typeof AGENT_TONES)[number]
 export const AGENT_SCHEDULES = ['always', 'after_hours'] as const
 export type AgentSchedule = (typeof AGENT_SCHEDULES)[number]
 
+/** How long the agent waits after someone of the company writes in a conversation (minutes; 1 hour at most). */
+export const HUMAN_PAUSE_MINUTES = [5, 10, 15, 30, 60] as const
+export type HumanPauseMinutes = (typeof HUMAN_PAUSE_MINUTES)[number]
+export const DEFAULT_HUMAN_PAUSE_MINUTES: HumanPauseMinutes = 30
+
 /** Why a conversation was passed from the agent to a person ('purchase': orders are taken by people, for now). */
 // catalog_unavailable: the customer asked about products while the company's own system could not be read.
 export const HANDOFF_REASONS = ['customer_asked', 'purchase', 'order_placed', 'agent_unsure', 'agent_error', 'limit_reached', 'catalog_unavailable'] as const

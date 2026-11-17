@@ -2,7 +2,7 @@ import { and, eq, gt, or } from 'drizzle-orm'
 import type { FastifyBaseLogger } from 'fastify'
 import type { Database } from '../../db/client.ts'
 import { conversations, messages, tenantSettings, tenants } from '../../db/schema/index.ts'
-import { pausedForOwner } from '../conversations/agent-handoff.ts'
+import { humanPauseMs, pausedForPerson } from '../conversations/agent-handoff.ts'
 import { type TenantScope, withTenant } from '../tenancy/tenant-scope.ts'
 import { type BotDelivery, type BotDraft, botMessageId, findTarget, storeBotText } from './bot-delivery.ts'
 import { isOpenAt } from './business-hours.ts'
@@ -11,8 +11,6 @@ import { isOpenAt } from './business-hours.ts'
 const FRESH_MS = 10 * 60_000
 /** At most one automatic answer per conversation in this span: a chatty customer gets it once. */
 const QUIET_MS = 12 * 60 * 60_000
-/** Someone of the team answered this recently: they are attending, closed or not. */
-const TEAM_ACTIVE_MS = 60 * 60_000
 
 /** The customer message that may deserve the away message. */
 export interface InboundTrigger {
@@ -65,12 +63,13 @@ export class AwayReplyService {
     if (!company?.awayMessage.trim() || isOpenAt(company.businessHours, trigger.timestamp, company.timezone)) return null
 
     const now = this.now()
-    // The owner is answering from the phone: no automatic message over them.
+    // Someone of the company is answering (panel or the owner's phone): no automatic message over them.
     const [conversation] = await tx
       .select({ agentPausedUntil: conversations.agentPausedUntil })
       .from(conversations)
       .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, trigger.conversationId)))
-    if (pausedForOwner(conversation?.agentPausedUntil ?? null, now)) return null
+    if (pausedForPerson(conversation?.agentPausedUntil ?? null, now)) return null
+    const teamActiveMs = await humanPauseMs(scope)
     const [recent] = await tx
       .select({ id: messages.id })
       .from(messages)
@@ -81,7 +80,7 @@ export class AwayReplyService {
           eq(messages.direction, 'out'),
           or(
             and(eq(messages.author, 'bot'), gt(messages.createdAt, new Date(now.getTime() - QUIET_MS))),
-            and(eq(messages.author, 'staff'), gt(messages.createdAt, new Date(now.getTime() - TEAM_ACTIVE_MS))),
+            and(eq(messages.author, 'staff'), gt(messages.createdAt, new Date(now.getTime() - teamActiveMs))),
           ),
         ),
       )

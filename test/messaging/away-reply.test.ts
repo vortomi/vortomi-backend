@@ -119,7 +119,7 @@ describe('AwayReplyService', () => {
     expect(await botMessages(first.conversationId)).toHaveLength(1)
   })
 
-  it('not on top of someone of the team who answered within the hour', async () => {
+  it("not on top of someone of the team who answered within the company's waiting time (30 minutes by default)", async () => {
     const first = await customerWrites('584121000005', OPEN_AT)
     await t.db.insert(messages).values({
       tenantId: a.tenantId,
@@ -129,7 +129,7 @@ describe('AwayReplyService', () => {
       authorUserId: who.laura,
       type: 'text',
       body: 'Ya te ayudo',
-      createdAt: new Date(CLOSED_AT.getTime() - 30 * 60_000),
+      createdAt: new Date(CLOSED_AT.getTime() - 20 * 60_000),
     })
     await customerWrites('584121000005', CLOSED_AT)
     expect(await botMessages(first.conversationId)).toEqual([])

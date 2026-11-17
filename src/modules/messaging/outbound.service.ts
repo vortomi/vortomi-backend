@@ -3,6 +3,7 @@ import type { Database } from '../../db/client.ts'
 import { channelAccounts, contacts, conversations, messageTemplates, messages } from '../../db/schema/index.ts'
 import { type MemberScope, withMember } from '../access/member-scope.ts'
 import type { ChannelCredentials } from '../channels/channel-credentials.ts'
+import { pauseAgent } from '../conversations/agent-handoff.ts'
 import { ConversationNotFoundError } from '../conversations/conversation-commands.ts'
 import type { ConversationQueries } from '../conversations/conversation-queries.ts'
 import { renderBody } from '../templates/template-body.ts'
@@ -193,6 +194,8 @@ export class OutboundService {
       .update(conversations)
       .set({ lastActivityAt: sql`now()` })
       .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, origin.conversationId)))
+    // A person of the team is answering: the agent leaves this conversation to them for a while.
+    await pauseAgent(scope, origin.conversationId, new Date(), member.userId)
     return { messageId: stored.id, isNew: true as const, target, deliver: draft.deliver }
   }
 }

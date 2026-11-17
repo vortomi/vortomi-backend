@@ -12,7 +12,7 @@ import { CATALOG_DOWN_REPLY } from '../../src/modules/agent/agent-tools.ts'
 import type { ChannelCredentials } from '../../src/modules/channels/channel-credentials.ts'
 import { IngestService } from '../../src/modules/conversations/ingest.service.ts'
 import { OwnerAppIngest } from '../../src/modules/conversations/owner-app-ingest.ts'
-import { pauseForOwner, returnToAgent } from '../../src/modules/conversations/agent-handoff.ts'
+import { pauseAgent, returnToAgent } from '../../src/modules/conversations/agent-handoff.ts'
 import { AutoResponder } from '../../src/modules/messaging/auto-responder.ts'
 import { AwayReplyService } from '../../src/modules/messaging/away-reply.ts'
 import { BotDelivery } from '../../src/modules/messaging/bot-delivery.ts'
@@ -388,11 +388,26 @@ describe('when the owner answers from the WhatsApp Business app (coexistence)', 
       expect(sender.sent).toHaveLength(1)
 
       const paused = await customerWrites('584125559105', 'Hola')
-      await withTenant(t.db, a.tenantId, (scope) => pauseForOwner(scope, paused.conversationId, new Date(closed.getTime() - 60_000)))
+      await withTenant(t.db, a.tenantId, (scope) => pauseAgent(scope, paused.conversationId, new Date(closed.getTime() - 60_000), null))
       await away.afterInbound(a.tenantId, { conversationId: paused.conversationId, waMessageId: paused.waMessageId, timestamp: closed })
       expect(sender.sent).toHaveLength(1)
     } finally {
       await withTenant(t.db, a.tenantId, ({ tx }) => tx.update(tenantSettings).set({ businessHours: [] }).where(eq(tenantSettings.tenantId, a.tenantId)))
+    }
+  })
+})
+
+describe('the company\'s waiting time (Ajustes → Agente)', () => {
+  it('a shorter wait brings the agent back sooner: 5 minutes after the owner, it answers', async () => {
+    await t.db.update(agentSettings).set({ humanPauseMinutes: 5 }).where(eq(agentSettings.tenantId, a.tenantId))
+    try {
+      const { conversationId } = await customerWrites('584125559201')
+      await withTenant(t.db, a.tenantId, (scope) => pauseAgent(scope, conversationId, new Date(NOW.getTime() - 10 * 60_000), null))
+      await customerWrites('584125559201', '¿Y para mañana?')
+      await agentWith(model).answer(a.tenantId, conversationId)
+      expect(await botMessages(conversationId)).toHaveLength(1)
+    } finally {
+      await t.db.update(agentSettings).set({ humanPauseMinutes: 30 }).where(eq(agentSettings.tenantId, a.tenantId))
     }
   })
 })

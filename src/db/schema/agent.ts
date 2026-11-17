@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { boolean, check, date, integer, pgTable, primaryKey, text, uuid } from 'drizzle-orm/pg-core'
 import { oneOf, tenantIdColumn, timestamptz } from './columns.ts'
-import { AGENT_SCHEDULES, AGENT_TONES } from './enums.ts'
+import { AGENT_SCHEDULES, AGENT_TONES, DEFAULT_HUMAN_PAUSE_MINUTES, HUMAN_PAUSE_MINUTES } from './enums.ts'
 import { tenants } from './tenancy.ts'
 
 // The sales agent: it answers customers by itself while its company keeps it on. It only ever
@@ -21,6 +21,9 @@ export const agentSettings = pgTable(
     schedule: text('schedule', { enum: AGENT_SCHEDULES }).notNull().default('always'),
     // What the company lets the agent tell anyone: address, payment methods, delivery, policies.
     businessInfo: text('business_info').notNull().default(''),
+    // After someone of the company writes in a conversation (panel or the owner's phone), the agent
+    // leaves it to them this many minutes from their last message.
+    humanPauseMinutes: integer('human_pause_minutes').notNull().default(DEFAULT_HUMAN_PAUSE_MINUTES),
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   (t) => [
@@ -28,6 +31,7 @@ export const agentSettings = pgTable(
     check('agent_settings_schedule_check', oneOf(t.schedule, AGENT_SCHEDULES)),
     check('agent_settings_assistant_name_check', sql`length(${t.assistantName}) between 1 and 40`),
     check('agent_settings_business_info_check', sql`length(${t.businessInfo}) <= 4000`),
+    check('agent_settings_human_pause_minutes_check', sql`${t.humanPauseMinutes} in (${sql.raw(HUMAN_PAUSE_MINUTES.join(', '))})`),
   ],
 )
 

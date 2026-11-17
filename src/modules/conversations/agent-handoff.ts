@@ -1,5 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm'
-import { conversations } from '../../db/schema/index.ts'
+import { DEFAULT_HUMAN_PAUSE_MINUTES } from '../../db/schema/enums.ts'
+import { agentSettings, conversations } from '../../db/schema/index.ts'
 import type { TenantScope } from '../tenancy/tenant-scope.ts'
 
 /**
@@ -10,24 +11,36 @@ import type { TenantScope } from '../tenancy/tenant-scope.ts'
 export async function returnToAgent(scope: TenantScope, conversationId: string): Promise<void> {
   await scope.tx
     .update(conversations)
-    .set({ handoffAt: null, handoffReason: null, agentPausedUntil: null })
+    .set({ handoffAt: null, handoffReason: null, agentPausedUntil: null, agentPausedByUserId: null })
     .where(and(eq(conversations.tenantId, scope.tenantId), eq(conversations.id, conversationId)))
 }
 
-/** How long the agent stays quiet after the owner writes from the phone (decided 2026-11-12). */
-export const OWNER_REPLY_PAUSE_MS = 30 * 60_000
+/** How long the agent waits after someone of the company writes (Ajustes → Agente; 30 minutes by default). */
+export async function humanPauseMs(scope: TenantScope): Promise<number> {
+  const [row] = await scope.tx
+    .select({ minutes: agentSettings.humanPauseMinutes })
+    .from(agentSettings)
+    .where(eq(agentSettings.tenantId, scope.tenantId))
+  return (row?.minutes ?? DEFAULT_HUMAN_PAUSE_MINUTES) * 60_000
+}
 
 /**
- * The owner answered from the WhatsApp Business app: the agent leaves the conversation to them for
- * 30 minutes from that message. Only moves forward, so an older echo arriving late shortens nothing.
+ * Someone of the company wrote to the customer: a member of the team from the panel (`byUserId`), or
+ * the owner from the WhatsApp Business app (null). The agent leaves the conversation to them for the
+ * company's waiting time from that message. Only moves forward, so an older message arriving late
+ * shortens nothing; the one who wrote last is the one it waits for.
  */
-export async function pauseForOwner(scope: TenantScope, conversationId: string, writtenAt: Date): Promise<void> {
-  const until = new Date(writtenAt.getTime() + OWNER_REPLY_PAUSE_MS).toISOString()
+export async function pauseAgent(scope: TenantScope, conversationId: string, writtenAt: Date, byUserId: string | null): Promise<void> {
+  const until = new Date(writtenAt.getTime() + (await humanPauseMs(scope))).toISOString()
   await scope.tx
     .update(conversations)
-    .set({ agentPausedUntil: sql`greatest(${conversations.agentPausedUntil}, ${until}::timestamptz)` })
+    .set({
+      // Both read the row as it was: the author changes only if this message moves the pause.
+      agentPausedByUserId: sql`case when ${until}::timestamptz >= coalesce(${conversations.agentPausedUntil}, '-infinity') then ${byUserId}::uuid else ${conversations.agentPausedByUserId} end`,
+      agentPausedUntil: sql`greatest(${conversations.agentPausedUntil}, ${until}::timestamptz)`,
+    })
     .where(and(eq(conversations.tenantId, scope.tenantId), eq(conversations.id, conversationId)))
 }
 
-/** Whether the owner's pause still holds at `now`. */
-export const pausedForOwner = (agentPausedUntil: Date | null, now: Date): boolean => agentPausedUntil !== null && agentPausedUntil > now
+/** Whether someone of the company is still answering at `now`. */
+export const pausedForPerson = (agentPausedUntil: Date | null, now: Date): boolean => agentPausedUntil !== null && agentPausedUntil > now

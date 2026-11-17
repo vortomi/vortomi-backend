@@ -3,7 +3,7 @@ import type { FastifyBaseLogger } from 'fastify'
 import type { Database } from '../../db/client.ts'
 import type { HandoffReason } from '../../db/schema/enums.ts'
 import { agentSettings, agentUsage, conversationAssignees, conversations, exchangeRates, messages, tenantSettings, tenants } from '../../db/schema/index.ts'
-import { pausedForOwner } from '../conversations/agent-handoff.ts'
+import { humanPauseMs, pausedForPerson } from '../conversations/agent-handoff.ts'
 import type { InboundTrigger } from '../messaging/away-reply.ts'
 import { type BotDelivery, type BotDraft, type BotTarget, botMessageId, findTarget, storeBotText } from '../messaging/bot-delivery.ts'
 import { isOpenAt } from '../messaging/business-hours.ts'
@@ -22,8 +22,6 @@ import type { ChatModel, ChatRequest, ChatTurn } from './chat-model.ts'
 
 /** A message stored later than this (recovered after an outage) gets no automatic answer. */
 const FRESH_MS = 10 * 60_000
-/** Someone of the team wrote in the conversation this recently: they are attending it. */
-const TEAM_ACTIVE_MS = 60 * 60_000
 /** How much of the conversation the model reads. */
 const HISTORY = 20
 
@@ -260,8 +258,8 @@ export class SalesAgent {
       .from(conversations)
       .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
     if (!conversation || conversation.status !== 'open') return null
-    // The owner is answering from the phone: theirs for now (30 minutes after their last message).
-    if (pausedForOwner(conversation.agentPausedUntil, this.now())) return null
+    // Someone of the company is answering (panel or the owner's phone): theirs for now.
+    if (pausedForPerson(conversation.agentPausedUntil, this.now())) return null
     // Handed off for an order it took, it still tells how the order is going; for anything else it is
     // quiet. A hand-off because the model failed for a moment is retried when the customer writes again.
     const followUp = conversation.handoffReason === 'order_placed'
@@ -284,7 +282,8 @@ export class SalesAgent {
     // Only a customer message waiting for an answer; and never over a person who just wrote.
     if (!last || last.direction !== 'in' || !last.waMessageId) return null
     if (retrying && (!conversation.handoffAt || last.createdAt <= conversation.handoffAt)) return null
-    const teamSince = new Date(this.now().getTime() - TEAM_ACTIVE_MS)
+    // Also by the messages themselves (the pause covers it; this covers messages from before it existed).
+    const teamSince = new Date(this.now().getTime() - (await humanPauseMs(scope)))
     if (recent.some((m) => m.author === 'staff' && m.createdAt > teamSince)) return null
 
     const [usage] = await tx

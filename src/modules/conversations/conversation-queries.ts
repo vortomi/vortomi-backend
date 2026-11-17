@@ -46,6 +46,8 @@ const columns = {
   handoffAt: conversations.handoffAt,
   // The owner is answering from the phone: the agent is quiet here until then.
   agentPausedUntil: conversations.agentPausedUntil,
+  // Who: a member of the team, or null for the owner on the phone.
+  agentPausedByUserId: conversations.agentPausedByUserId,
   lastActivityAt: conversations.lastActivityAt,
   channelAccountId: contacts.channelAccountId,
   contact: { id: contacts.id, waId: contacts.waId, name: contacts.name, displayName: contacts.displayName },

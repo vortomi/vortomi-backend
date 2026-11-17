@@ -73,10 +73,12 @@ export const conversations = pgTable(
     lastActivityAt: timestamptz('last_activity_at').notNull().defaultNow(),
     // Shared by the team: inbound messages after it are unread. Null = never opened.
     lastReadAt: timestamptz('last_read_at'),
-    // The owner is answering from the WhatsApp Business app (coexistence): the agent and the away
-    // message stay quiet here until then. Each message of the owner moves it 30 minutes ahead;
-    // «Devolver al agente» clears it. Null = no pause.
+    // Someone of the company is answering (from the panel, or the owner from the WhatsApp Business
+    // app): the agent and the away message stay quiet here until then. Each of their messages moves
+    // it ahead (Ajustes → Agente says how far); «Devolver al agente» clears it. Null = no pause.
     agentPausedUntil: timestamptz('agent_paused_until'),
+    // Who it is: a member of the team, or null for the owner on the phone.
+    agentPausedByUserId: uuid('agent_paused_by_user_id'),
     // The sales agent passed it to a person (and why): it stays quiet here until an admin hands
     // it back. Null = the agent may answer.
     handoffAt: timestamptz('handoff_at'),
@@ -92,6 +94,11 @@ export const conversations = pgTable(
       name: 'conversations_contact_fk',
       columns: [t.tenantId, t.contactId],
       foreignColumns: [contacts.tenantId, contacts.id],
+    }),
+    foreignKey({
+      name: 'conversations_paused_by_fk',
+      columns: [t.tenantId, t.agentPausedByUserId],
+      foreignColumns: [memberships.tenantId, memberships.userId],
     }),
     index('conversations_tenant_activity_idx').on(t.tenantId, t.lastActivityAt),
     check('conversations_status_check', oneOf(t.status, CONVERSATION_STATUSES)),

@@ -442,6 +442,13 @@
       "when": 1794926978294,
       "tag": "0062_agent_paused_until",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1794928794263,
+      "tag": "0063_human_pause",
+      "breakpoints": true
     }
   ]
 }
