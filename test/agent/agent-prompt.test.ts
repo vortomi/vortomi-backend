@@ -20,6 +20,13 @@ describe('systemPrompt', () => {
     expect(prompt).toContain('do not bring up products, prices, orders or passing them to someone unless they ask')
   })
 
+  it('short answers, except a list of products: one per line with a bullet, prices with a decimal comma', () => {
+    const prompt = systemPrompt(facts)
+    expect(prompt).toContain('short (one or two lines)')
+    expect(prompt).toContain('one product per line, as "• Name: $1,20"')
+    expect(prompt).toContain('never $1.20')
+  })
+
   it('with the product system down, only mentions it when the customer asks about products', () => {
     const down = systemPrompt({ ...facts, catalogUnavailable: true })
     expect(down).toContain('Only when the customer asks about products')
