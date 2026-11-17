@@ -20,6 +20,13 @@ export interface OrderDesk {
 /** Only the reasons the model may give; the rest are the system's own (orders, errors, limits). */
 const MODEL_REASONS = ['customer_asked', 'purchase', 'agent_unsure'] as const satisfies readonly HandoffReason[]
 
+/**
+ * What the customer reads when they asked about products and the company's own system cannot be
+ * read. Written by the server, always the same: the customer never learns of the failure, and the
+ * team recognises it (with the hand-off reason catalog_unavailable).
+ */
+export const CATALOG_DOWN_REPLY = '¡Enseguida te confirmamos, danos un momento! 😊'
+
 /** The order as the model describes it; prices are never part of it. */
 const orderProperties = (terms: OrderTerms) => ({
   customerName: { type: 'string', description: 'Name the order goes under.' },
@@ -73,16 +80,18 @@ function readOrder(args: Record<string, unknown>): OrderRequest {
 }
 
 /** Passing the chat to a person: the agent's only tool while an order of the customer is in progress. */
-export function handOffTool(intent: AgentIntent): AgentTool {
+export function handOffTool(intent: AgentIntent, catalogDown = false): AgentTool {
+  const reasons: readonly HandoffReason[] = catalogDown ? [...MODEL_REASONS, 'catalog_unavailable'] : MODEL_REASONS
   return {
     name: 'hand_off_to_person',
     description:
       'Passes the conversation to a person of the team, who continues it. Use it when the customer asks for a person ' +
-      '("customer_asked"), wants something you cannot do ("purchase"), or you cannot answer ("agent_unsure").',
-    parameters: { type: 'object', properties: { reason: { type: 'string', enum: [...MODEL_REASONS] } }, required: ['reason'] },
+      '("customer_asked"), wants something you cannot do ("purchase"), or you cannot answer ("agent_unsure").' +
+      (catalogDown ? ' The product list cannot be read now: for any question about products, prices, availability or an order, use "catalog_unavailable".' : ''),
+    parameters: { type: 'object', properties: { reason: { type: 'string', enum: [...reasons] } }, required: ['reason'] },
     run: (args) => {
       const reason = args['reason']
-      intent.handoff = MODEL_REASONS.find((r) => r === reason) ?? 'agent_unsure'
+      intent.handoff = reasons.find((r) => r === reason) ?? 'agent_unsure'
       return Promise.resolve({ done: true, tellTheCustomer: 'In first person, say you will check it and get back to them shortly. Do not mention anyone else.' })
     },
   }
@@ -93,7 +102,7 @@ export function handOffTool(intent: AgentIntent): AgentTool {
  * own system); the only things they write are a confirmed order and the intent to pass the chat
  * to a person. Prices always come from the catalog, never from the model.
  */
-export function agentTools(catalog: AgentCatalog, intent: AgentIntent, desk: OrderDesk | null = null): AgentTool[] {
+export function agentTools(catalog: AgentCatalog, intent: AgentIntent, desk: OrderDesk | null = null, catalogDown = false): AgentTool[] {
   const tools: AgentTool[] = [
     {
       name: 'search_products',
@@ -105,9 +114,14 @@ export function agentTools(catalog: AgentCatalog, intent: AgentIntent, desk: Ord
         properties: { query: { type: 'string', description: 'Words to look for, e.g. "pastillas freno corolla" or "recarga 19".' } },
         required: ['query'],
       },
-      run: (args) => catalog.search(typeof args['query'] === 'string' ? args['query'] : ''),
+      run: async (args) => {
+        const found = await catalog.search(typeof args['query'] === 'string' ? args['query'] : '')
+        // Searching while the system cannot be read means they asked about products: a person takes it.
+        if (found.unavailable) intent.handoff = 'catalog_unavailable'
+        return found
+      },
     },
-    handOffTool(intent),
+    handOffTool(intent, catalogDown),
   ]
   if (!desk) return tools
 

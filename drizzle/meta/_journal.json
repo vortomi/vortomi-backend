@@ -428,6 +428,13 @@
       "when": 1794863658214,
       "tag": "0060_channel_signup",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1794925982837,
+      "tag": "0061_catalog_unavailable_handoff",
+      "breakpoints": true
     }
   ]
 }

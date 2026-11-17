@@ -8,6 +8,7 @@ import { agentSettings, agentUsage, conversations, exchangeRates, messages, prod
 import type { ChatModel, ChatReply, ChatRequest } from '../../src/modules/agent/chat-model.ts'
 import { ModelBusyError } from '../../src/modules/agent/chat-model.ts'
 import { SalesAgent, monthOf } from '../../src/modules/agent/sales-agent.ts'
+import { CATALOG_DOWN_REPLY } from '../../src/modules/agent/agent-tools.ts'
 import type { ChannelCredentials } from '../../src/modules/channels/channel-credentials.ts'
 import { IngestService } from '../../src/modules/conversations/ingest.service.ts'
 import { AutoResponder } from '../../src/modules/messaging/auto-responder.ts'
@@ -274,5 +275,49 @@ describe('never losing or doubling an answer', () => {
     expect(await restarted.resumePending()).toBeGreaterThan(0)
     await restarted.drain(5_000)
     expect(await botMessages(conversationId)).toEqual([{ body: model.answer }])
+  })
+})
+
+describe('when the company\'s own product system cannot be read', () => {
+  const down = (chat: ChatModel) =>
+    new SalesAgent(t.db, new BotDelivery(t.db, credentials, sender), chat, {
+      monthlyCap: 1000,
+      debounceMs: 60_000,
+      log: silentLog,
+      now: () => NOW,
+      catalogs: { lookup: () => Promise.resolve({ source: 'external' as const, catalog: null }) },
+    })
+
+  it('a product question gets the same short line, written by the server, and goes to a person marked as such', async () => {
+    const { conversationId } = await customerWrites('584125559001', '¿A cómo está la recarga de 19?')
+    model.toolCalls = [{ name: 'search_products', args: { query: 'recarga 19' } }]
+    model.answer = 'Uy, no puedo ver los precios porque el sistema está caído.'
+    await down(model).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toEqual([{ body: CATALOG_DOWN_REPLY }])
+    expect(await handoff(conversationId)).toBe('catalog_unavailable')
+  })
+
+  it('the model may also pass it straight away with that reason', async () => {
+    const { conversationId } = await customerWrites('584125559002', 'Quiero 2 recargas de 12')
+    model.toolCalls = [{ name: 'hand_off_to_person', args: { reason: 'catalog_unavailable' } }]
+    await down(model).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toEqual([{ body: CATALOG_DOWN_REPLY }])
+    expect(await handoff(conversationId)).toBe('catalog_unavailable')
+  })
+
+  it('a greeting is answered as a greeting: nothing about the failure, nobody called', async () => {
+    const { conversationId } = await customerWrites('584125559003', 'Hola buenos días')
+    model.answer = '¡Buenos días! ¿En qué te puedo ayudar?'
+    await down(model).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toEqual([{ body: '¡Buenos días! ¿En qué te puedo ayudar?' }])
+    expect(await handoff(conversationId)).toBeNull()
+    expect(model.requests[0]!.system).toContain('For greetings and anything else, answer normally and do not mention it.')
+  })
+
+  it('with the catalog readable, the model cannot use that reason', async () => {
+    const { conversationId } = await customerWrites('584125559004', '¿Tienen pastillas de freno?')
+    model.toolCalls = [{ name: 'hand_off_to_person', args: { reason: 'catalog_unavailable' } }]
+    await agentWith(model).answer(a.tenantId, conversationId)
+    expect(await handoff(conversationId)).toBe('agent_unsure')
   })
 })

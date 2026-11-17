@@ -18,6 +18,8 @@ const WHOLE_CATALOG = 40
 export interface CatalogAnswer {
   products: unknown[]
   note?: string
+  /** The company's own system cannot be read now (and nothing recent is kept). */
+  unavailable?: boolean
 }
 
 /** Where the agent reads a company's products: Vortomi's inventory or the company's own system. */
@@ -67,11 +69,19 @@ export type ExternalRate = { from: 'system' } | { from: 'company'; bsPerUsd: str
  */
 export function externalCatalog(catalog: CachedCatalog | null, rate: ExternalRate = { from: 'system' }): AgentCatalog {
   if (!catalog) {
-    const unavailable: CatalogAnswer = {
+    // Before asking, nothing is searched: the prompt says when to mention it (only if they ask about
+    // products), so a greeting is answered as a greeting. The search tool says it plainly.
+    const searched: CatalogAnswer = {
       products: [],
-      note: 'The product list cannot be read right now. Do not give prices or availability; offer to pass the chat to a person.',
+      unavailable: true,
+      note: 'The product list cannot be read right now. Do not give prices or availability: tell the customer you cannot check it at this moment and offer to pass the chat to a person.',
     }
-    return { bsPerUsd: null, forPrompt: () => Promise.resolve(unavailable), search: () => Promise.resolve(unavailable), resolve: () => Promise.resolve(null) }
+    return {
+      bsPerUsd: null,
+      forPrompt: () => Promise.resolve({ products: [], unavailable: true }),
+      search: () => Promise.resolve(searched),
+      resolve: () => Promise.resolve(null),
+    }
   }
   const note = catalog.stale ? 'These prices are a few minutes old: say they may have changed slightly.' : undefined
   const bsPerUsd = rate.from === 'system' ? catalog.bsPerUsd.toFixed(2) : rate.bsPerUsd

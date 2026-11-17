@@ -1,0 +1,2 @@
+ALTER TABLE "conversations" DROP CONSTRAINT "conversations_handoff_reason_check";--> statement-breakpoint
+ALTER TABLE "conversations" ADD CONSTRAINT "conversations_handoff_reason_check" CHECK ("conversations"."handoff_reason" in ('customer_asked', 'purchase', 'order_placed', 'agent_unsure', 'agent_error', 'limit_reached', 'catalog_unavailable'));

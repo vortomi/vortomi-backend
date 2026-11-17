@@ -134,7 +134,9 @@ describe('what the agent sees', () => {
   })
 
   it('an unreadable catalog tells the agent not to give prices', async () => {
-    expect((await externalCatalog(null).forPrompt('precio')).note).toContain('Do not give prices')
+    // Nothing is pushed before asking (a greeting stays a greeting); the search tool says it plainly.
+    expect(await externalCatalog(null).forPrompt('hola')).toEqual({ products: [], unavailable: true })
+    expect((await externalCatalog(null).search('precio')).note).toContain('Do not give prices')
   })
 })
 

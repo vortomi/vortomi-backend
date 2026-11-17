@@ -9,7 +9,7 @@ import { isOpenAt } from '../messaging/business-hours.ts'
 import { type TenantScope, withTenant } from '../tenancy/tenant-scope.ts'
 import { type PromptFacts, orderLineText, systemPrompt } from './agent-prompt.ts'
 import { type AgentCatalog, externalCatalog, inventoryCatalog } from './agent-catalog.ts'
-import { type AgentIntent, type OrderDesk, agentTools, handOffTool } from './agent-tools.ts'
+import { type AgentIntent, CATALOG_DOWN_REPLY, type OrderDesk, agentTools, handOffTool } from './agent-tools.ts'
 import { dayIn } from '../../shared/time-zone.ts'
 import { OrderService } from '../orders/order-service.ts'
 import type { CatalogSources } from '../catalog-source/catalog-sources.ts'
@@ -101,7 +101,8 @@ export class SalesAgent {
           : await this.sellingRequest(tenantId, conversationId, context, intent),
       )
       // A just-placed order is answered with one message the server writes: how to pay it.
-      const body = (intent.placed && paymentBody(intent.placed.quote)) || reply.text
+      // Product questions while the company's system cannot be read: always the same short line.
+      const body = (intent.placed && paymentBody(intent.placed.quote)) || (intent.handoff === 'catalog_unavailable' ? CATALOG_DOWN_REPLY : reply.text)
       const draft = await withTenant(this.db, tenantId, async (scope) => {
         await this.count(scope, reply.usage)
         // The customer wrote again while the model was thinking: this answer missed that message, so
@@ -133,9 +134,14 @@ export class SalesAgent {
         }
       : null
     return {
-      system: systemPrompt({ ...context.facts, bsPerUsd: catalog.bsPerUsd, catalog: found.products.length || found.note ? JSON.stringify(found) : undefined }),
+      system: systemPrompt({
+        ...context.facts,
+        bsPerUsd: catalog.bsPerUsd,
+        catalog: found.products.length || found.note ? JSON.stringify(found) : undefined,
+        catalogUnavailable: found.unavailable === true,
+      }),
       history: context.history,
-      tools: agentTools(catalog, intent, desk),
+      tools: agentTools(catalog, intent, desk, found.unavailable === true),
     }
   }
 

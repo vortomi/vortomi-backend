@@ -126,7 +126,8 @@ export const AGENT_SCHEDULES = ['always', 'after_hours'] as const
 export type AgentSchedule = (typeof AGENT_SCHEDULES)[number]
 
 /** Why a conversation was passed from the agent to a person ('purchase': orders are taken by people, for now). */
-export const HANDOFF_REASONS = ['customer_asked', 'purchase', 'order_placed', 'agent_unsure', 'agent_error', 'limit_reached'] as const
+// catalog_unavailable: the customer asked about products while the company's own system could not be read.
+export const HANDOFF_REASONS = ['customer_asked', 'purchase', 'order_placed', 'agent_unsure', 'agent_error', 'limit_reached', 'catalog_unavailable'] as const
 export type HandoffReason = (typeof HANDOFF_REASONS)[number]
 
 /**
