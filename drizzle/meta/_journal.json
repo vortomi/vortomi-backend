@@ -435,6 +435,13 @@
       "when": 1794925982837,
       "tag": "0061_catalog_unavailable_handoff",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1794926978294,
+      "tag": "0062_agent_paused_until",
+      "breakpoints": true
     }
   ]
 }

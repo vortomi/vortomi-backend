@@ -49,7 +49,7 @@ async function deliver(payload: object) {
 const conversationOf = (tenantId: string, waId: string) =>
   withTenant(t.db, tenantId, async ({ tx }) => {
     const [row] = await tx
-      .select({ id: conversations.id, status: conversations.status, lastActivityAt: conversations.lastActivityAt, name: contacts.name, contactId: contacts.id })
+      .select({ id: conversations.id, status: conversations.status, lastActivityAt: conversations.lastActivityAt, agentPausedUntil: conversations.agentPausedUntil, name: contacts.name, contactId: contacts.id })
       .from(conversations)
       .innerJoin(contacts, and(eq(contacts.tenantId, conversations.tenantId), eq(contacts.id, conversations.contactId)))
       .where(eq(contacts.waId, waId))
@@ -85,6 +85,8 @@ describe('what the owner writes from the phone', () => {
     expect(stored.find((m) => m.waMessageId === 'wamid.owner.1')).toMatchObject({ direction: 'out', author: 'owner_app', type: 'text', body: 'Sí, hay pan canilla recién salido' })
     expect(answered).toEqual(['wamid.customer.1'])
     expect(await conversationOf(b.tenantId, CUSTOMER)).toBeUndefined()
+    // The owner is answering: the agent leaves it to them for 30 minutes.
+    expect(conversation!.agentPausedUntil!.getTime()).toBeGreaterThan(Date.now() + 29 * 60_000)
   })
 
   it('a repeated echo is stored once', async () => {
@@ -119,7 +121,8 @@ describe('the chats the owner\'s app shares after connecting', () => {
     await deliver(chunk(1, [said('wamid.h.1', day(10), '¿Hacen tortas por encargo?'), replied('wamid.h.2', day(10), 'Sí, con dos días de anticipación')]))
 
     const conversation = await conversationOf(a.tenantId, OLD_CUSTOMER)
-    expect(conversation).toMatchObject({ status: 'resolved', lastActivityAt: day(21) })
+    // Months-old chats pause nothing: only a live message of the owner does.
+    expect(conversation).toMatchObject({ status: 'resolved', lastActivityAt: day(21), agentPausedUntil: null })
     const stored = await messagesOf(a.tenantId, conversation!.id)
     expect(stored.map((m) => [m.waMessageId, m.direction, m.author, m.createdAt.toISOString()]).sort()).toEqual([
       ['wamid.h.1', 'in', 'customer', day(10).toISOString()],

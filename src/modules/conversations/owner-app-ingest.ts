@@ -2,12 +2,14 @@ import { sql } from 'drizzle-orm'
 import { contacts, messages } from '../../db/schema/index.ts'
 import type { TenantScope } from '../tenancy/tenant-scope.ts'
 import type { ContactSyncEvent, HistoryChunkEvent, OwnerEchoEvent } from '../whatsapp/events.ts'
+import { pauseForOwner } from './agent-handoff.ts'
 import { touchConversation, upsertContact, upsertConversation } from './conversation-upsert.ts'
 
 /**
  * What the owner does on the WhatsApp Business app of a coexistence number, stored in Vortomi so
  * the conversation is complete. Nothing here answers anyone: these are records, never triggers.
  * Every write is idempotent (unique wa_message_id, contact upserts): Meta may send a chunk twice.
+ * The only effect beyond records: a live message of the owner pauses the agent in that conversation.
  */
 export class OwnerAppIngest {
   /** The owner wrote to a customer from the phone. True when it is new (not a repeated webhook). */
@@ -31,7 +33,11 @@ export class OwnerAppIngest {
       .onConflictDoNothing({ target: [messages.tenantId, messages.waMessageId] })
       .returning({ id: messages.id })
     const isNew = inserted.length > 0
-    if (isNew) await touchConversation(scope, conversationId, event.timestamp)
+    if (isNew) {
+      await touchConversation(scope, conversationId, event.timestamp)
+      // The owner is answering: the agent leaves this conversation to them for a while.
+      await pauseForOwner(scope, conversationId, event.timestamp)
+    }
     return { isNew, conversationId }
   }
 

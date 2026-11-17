@@ -11,6 +11,8 @@ import { SalesAgent, monthOf } from '../../src/modules/agent/sales-agent.ts'
 import { CATALOG_DOWN_REPLY } from '../../src/modules/agent/agent-tools.ts'
 import type { ChannelCredentials } from '../../src/modules/channels/channel-credentials.ts'
 import { IngestService } from '../../src/modules/conversations/ingest.service.ts'
+import { OwnerAppIngest } from '../../src/modules/conversations/owner-app-ingest.ts'
+import { pauseForOwner, returnToAgent } from '../../src/modules/conversations/agent-handoff.ts'
 import { AutoResponder } from '../../src/modules/messaging/auto-responder.ts'
 import { AwayReplyService } from '../../src/modules/messaging/away-reply.ts'
 import { BotDelivery } from '../../src/modules/messaging/bot-delivery.ts'
@@ -319,5 +321,78 @@ describe('when the company\'s own product system cannot be read', () => {
     model.toolCalls = [{ name: 'hand_off_to_person', args: { reason: 'catalog_unavailable' } }]
     await agentWith(model).answer(a.tenantId, conversationId)
     expect(await handoff(conversationId)).toBe('agent_unsure')
+  })
+})
+
+describe('when the owner answers from the WhatsApp Business app (coexistence)', () => {
+  const ownerApp = new OwnerAppIngest()
+  const ownerWrites = (customer: string, at: Date) =>
+    withTenant(t.db, a.tenantId, (scope) =>
+      ownerApp.recordEcho(scope, a.channelAccountId, {
+        kind: 'owner_echo',
+        phoneNumberId: a.phoneNumberId,
+        waMessageId: `wamid.owner.${++counter}`,
+        to: customer,
+        timestamp: at,
+        type: 'text',
+        body: 'Sí, hoy te la llevo yo mismo',
+        replyId: null,
+        waMediaId: null,
+      }),
+    )
+  const agentAt = (now: Date) =>
+    new SalesAgent(t.db, new BotDelivery(t.db, credentials, sender), model, { monthlyCap: 1000, debounceMs: 60_000, log: silentLog, now: () => now })
+  const minutes = (n: number) => new Date(NOW.getTime() + n * 60_000)
+
+  it('stays quiet in that conversation for 30 minutes after the owner\'s last message', async () => {
+    const { conversationId } = await customerWrites('584125559101', '¿Tienen recarga de 12?')
+    await ownerWrites('584125559101', minutes(-10))
+    await customerWrites('584125559101', 'Perfecto, gracias')
+    await agentAt(NOW).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toEqual([])
+    expect(model.requests).toHaveLength(0)
+  })
+
+  it('each new message of the owner moves the pause; past it, the agent answers again by itself', async () => {
+    const { conversationId } = await customerWrites('584125559102')
+    await ownerWrites('584125559102', minutes(-25))
+    await ownerWrites('584125559102', minutes(-5))
+    await customerWrites('584125559102', 'Otra cosa, ¿tienen hielo?')
+    // 25 minutes after the owner's last message: still theirs.
+    await agentAt(minutes(20)).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toEqual([])
+    // 31 minutes after it: the agent is back.
+    await agentAt(minutes(26)).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toHaveLength(1)
+  })
+
+  it('«Devolver al agente» ends the pause at once', async () => {
+    const { conversationId } = await customerWrites('584125559103')
+    await ownerWrites('584125559103', minutes(-1))
+    await withTenant(t.db, a.tenantId, (scope) => returnToAgent(scope, conversationId))
+    await customerWrites('584125559103', '¿Y el delivery?')
+    await agentAt(NOW).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toHaveLength(1)
+  })
+
+  it('the away message does not answer over the owner either', async () => {
+    // 3 am in Caracas, a Tuesday: closed, so the away message goes out unless the owner is answering.
+    const closed = new Date('2026-10-27T07:00:00Z')
+    await withTenant(t.db, a.tenantId, ({ tx }) =>
+      tx.update(tenantSettings).set({ businessHours: [{ day: 2, open: '08:00', close: '17:00' }] }).where(eq(tenantSettings.tenantId, a.tenantId)),
+    )
+    const away = new AwayReplyService(t.db, new BotDelivery(t.db, credentials, sender), silentLog, () => closed)
+    try {
+      const control = await customerWrites('584125559104', 'Hola')
+      await away.afterInbound(a.tenantId, { conversationId: control.conversationId, waMessageId: control.waMessageId, timestamp: closed })
+      expect(sender.sent).toHaveLength(1)
+
+      const paused = await customerWrites('584125559105', 'Hola')
+      await withTenant(t.db, a.tenantId, (scope) => pauseForOwner(scope, paused.conversationId, new Date(closed.getTime() - 60_000)))
+      await away.afterInbound(a.tenantId, { conversationId: paused.conversationId, waMessageId: paused.waMessageId, timestamp: closed })
+      expect(sender.sent).toHaveLength(1)
+    } finally {
+      await withTenant(t.db, a.tenantId, ({ tx }) => tx.update(tenantSettings).set({ businessHours: [] }).where(eq(tenantSettings.tenantId, a.tenantId)))
+    }
   })
 })

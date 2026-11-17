@@ -3,6 +3,7 @@ import type { FastifyBaseLogger } from 'fastify'
 import type { Database } from '../../db/client.ts'
 import type { HandoffReason } from '../../db/schema/enums.ts'
 import { agentSettings, agentUsage, conversationAssignees, conversations, exchangeRates, messages, tenantSettings, tenants } from '../../db/schema/index.ts'
+import { pausedForOwner } from '../conversations/agent-handoff.ts'
 import type { InboundTrigger } from '../messaging/away-reply.ts'
 import { type BotDelivery, type BotDraft, type BotTarget, botMessageId, findTarget, storeBotText } from '../messaging/bot-delivery.ts'
 import { isOpenAt } from '../messaging/business-hours.ts'
@@ -255,10 +256,12 @@ export class SalesAgent {
   private async context(scope: TenantScope, conversationId: string): Promise<Context | null> {
     const { tx, tenantId } = scope
     const [conversation] = await tx
-      .select({ handoffReason: conversations.handoffReason, handoffAt: conversations.handoffAt, status: conversations.status })
+      .select({ handoffReason: conversations.handoffReason, handoffAt: conversations.handoffAt, status: conversations.status, agentPausedUntil: conversations.agentPausedUntil })
       .from(conversations)
       .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
     if (!conversation || conversation.status !== 'open') return null
+    // The owner is answering from the phone: theirs for now (30 minutes after their last message).
+    if (pausedForOwner(conversation.agentPausedUntil, this.now())) return null
     // Handed off for an order it took, it still tells how the order is going; for anything else it is
     // quiet. A hand-off because the model failed for a moment is retried when the customer writes again.
     const followUp = conversation.handoffReason === 'order_placed'
