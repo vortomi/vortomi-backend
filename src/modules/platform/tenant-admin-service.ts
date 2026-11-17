@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { Database } from '../../db/client.ts'
 import { TENANT_PLANS } from '../../db/schema/enums.ts'
 import { timeZone } from '../../shared/time-zone.ts'
-import { channelAccounts, channelCredentials, memberships, messages, tenants, users } from '../../db/schema/index.ts'
+import { channelAccounts, channelCredentials, invitations, memberships, messages, tenants, users } from '../../db/schema/index.ts'
 import type { ChannelCredentials } from '../channels/channel-credentials.ts'
 import type { InvitationService } from '../team/invitation-service.ts'
 import type { WabaDirectory } from '../whatsapp/cloud-api.client.ts'
@@ -20,6 +20,14 @@ export class NoChannelError extends Error {
   constructor() {
     super('A company goes live only with a connected number')
     this.name = 'NoChannelError'
+  }
+}
+
+/** Only a sign-up left half way, with nothing in it yet (no number, people or invitation), can be discarded. */
+export class NotDiscardableError extends Error {
+  constructor() {
+    super('Only an empty draft can be discarded')
+    this.name = 'NotDiscardableError'
   }
 }
 
@@ -162,6 +170,32 @@ export class TenantAdminService {
     const [row] = await this.db.update(tenants).set(input).where(eq(tenants.id, tenantId)).returning(tenantColumns)
     if (!row) throw new TenantNotFoundError()
     return row
+  }
+
+  /**
+   * Deletes a sign-up left half way (a repeated attempt, a company that will not join). Only while it is
+   * empty: no number, no people, no invitation. Nothing cascades, so any other row of the company
+   * makes the database refuse, and the draft stays.
+   */
+  async discardDraft(tenantId: string): Promise<void> {
+    await this.tenant(tenantId)
+    const empty = and(
+      eq(tenants.id, tenantId),
+      inArray(tenants.status, ['draft', 'awaiting_channel']),
+      sql`not exists (select 1 from ${channelAccounts} c where c.tenant_id = ${tenants.id})`,
+      sql`not exists (select 1 from ${memberships} m where m.tenant_id = ${tenants.id})`,
+      sql`not exists (select 1 from ${invitations} i where i.tenant_id = ${tenants.id})`,
+    )
+    const deleted = await this.db
+      .delete(tenants)
+      .where(empty)
+      .returning({ id: tenants.id })
+      .catch((error: unknown) => {
+        // 23503: another table still points at it.
+        if ((error as { cause?: { code?: string } }).cause?.code === '23503') throw new NotDiscardableError()
+        throw error
+      })
+    if (!deleted.length) throw new NotDiscardableError()
   }
 
   /** Live only with a number; suspending keeps every row and only closes the door. */

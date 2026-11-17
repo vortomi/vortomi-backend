@@ -216,3 +216,29 @@ describe('correcting a connected number', () => {
     expect((await console_('POST', `/tenants/${tenantId}/channels/${channelId}/refresh`)).json()).toEqual({ displayNumber: '+58 241-555-0102' })
   })
 })
+
+describe('discarding a sign-up left half way', () => {
+  const draft = async (name: string) => (await console_('POST', '/tenants', { ...company, name })).json<{ id: string }>().id
+
+  it('deletes an empty draft, and only that', async () => {
+    const id = await draft('Intento repetido')
+    const discarded = await console_('DELETE', `/tenants/${id}`)
+    expect(discarded.statusCode).toBe(204)
+    expect((await console_('GET', `/tenants/${id}`)).json()).toEqual({ error: 'tenant_not_found' })
+  })
+
+  it('refuses a company with a number, with an invitation, or already working', async () => {
+    expect((await console_('DELETE', `/tenants/${tenantId}`)).json()).toEqual({ error: 'not_discardable' })
+    const invited = await draft('Con invitación')
+    await console_('POST', `/tenants/${invited}/invitations`, { name: 'Ana', email: 'ana@example.com' })
+    expect((await console_('DELETE', `/tenants/${invited}`)).json()).toEqual({ error: 'not_discardable' })
+    expect((await console_('DELETE', `/tenants/${other.tenantId}`)).json()).toEqual({ error: 'not_discardable' })
+    expect((await console_('GET', `/tenants/${invited}`)).statusCode).toBe(200)
+  })
+
+  it('only our team, with the second factor', async () => {
+    const id = await draft('Ajena')
+    expect((await console_('DELETE', `/tenants/${id}`, undefined, who.laura)).json()).toEqual({ error: 'platform_admin_required' })
+    expect((await console_('DELETE', `/tenants/${id}`, undefined, who.yornel, 'aal1')).json()).toEqual({ error: 'second_factor_required' })
+  })
+})

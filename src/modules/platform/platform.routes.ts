@@ -55,6 +55,12 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
   app.get('/tenants/:tenantId', (request) => tenants.detail(id(request.params)))
   app.put('/tenants/:tenantId', (request) => tenants.update(id(request.params), parseInput(tenantInput, request.body)))
 
+  // A sign-up left half way and still empty; anything with data is refused (not_discardable).
+  app.delete('/tenants/:tenantId', async (request, reply) => {
+    await tenants.discardDraft(id(request.params))
+    return reply.code(204).send()
+  })
+
   app.put('/tenants/:tenantId/status', async (request, reply) => {
     await tenants.setStatus(id(request.params), parseInput(tenantStatusInput, request.body).status)
     return reply.code(204).send()
