@@ -484,6 +484,13 @@
       "when": 1795015920312,
       "tag": "0068_message_media",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1795020517563,
+      "tag": "0069_handoff_media_received",
+      "breakpoints": true
     }
   ]
 }

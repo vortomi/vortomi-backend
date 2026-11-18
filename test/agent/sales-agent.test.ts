@@ -9,6 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { agentSettings, agentUsage, conversations, exchangeRates, messages, productVariants, products, tenantSettings } from '../../src/db/schema/index.ts'
 import type { ChatModel, ChatReply, ChatRequest } from '../../src/modules/agent/chat-model.ts'
 import { ModelBusyError } from '../../src/modules/agent/chat-model.ts'
+import { mediaTurn } from '../../src/modules/agent/media-turn.ts'
 import { SalesAgent, monthOf } from '../../src/modules/agent/sales-agent.ts'
 import { CATALOG_DOWN_REPLY } from '../../src/modules/agent/agent-tools.ts'
 import type { ChannelCredentials } from '../../src/modules/channels/channel-credentials.ts'
@@ -419,5 +420,63 @@ describe('the company\'s waiting time (Ajustes → Agente)', () => {
     } finally {
       await t.db.update(agentSettings).set({ humanPauseMinutes: 30 }).where(eq(agentSettings.tenantId, a.tenantId))
     }
+  })
+})
+
+describe('files the agent cannot see or hear', () => {
+  /** A customer of company A sends a file, with or without text. */
+  async function customerSends(from: string, type: 'image' | 'audio' | 'document' | 'video' | 'sticker', body: string | null = null) {
+    const waMessageId = `wamid.agent.${++counter}`
+    const event: InboundMessageEvent = { kind: 'inbound_message', phoneNumberId: a.phoneNumberId, waMessageId, timestamp: NOW, from, profileName: 'Cliente', type, body, replyId: null, waMediaId: `media-${counter}` }
+    return (await withTenant(t.db, a.tenantId, (scope) => ingest.recordInbound(scope, a.channelAccountId, event))).conversationId
+  }
+
+  it('a photo alone: the fixed line, in first person, and a person takes it; the model is never asked', async () => {
+    const conversationId = await customerSends('584121000801', 'image')
+    await agentWith(model).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toEqual([{ body: '¡Listo, me llegó la foto! Ya te confirmo 😊' }])
+    expect(sender.sent[0]).toMatchObject({ to: '584121000801', body: '¡Listo, me llegó la foto! Ya te confirmo 😊' })
+    expect(await handoff(conversationId)).toBe('media_received')
+    expect(model.requests).toEqual([])
+  })
+
+  it('each kind has its line: voice note, document, video', async () => {
+    for (const [from, type, line] of [
+      ['584121000802', 'audio', '¡Recibido! Ya te respondo 😊'],
+      ['584121000803', 'document', '¡Me llegó el documento! Dame un momentico 😊'],
+      ['584121000804', 'video', '¡Recibido! Déjame verlo y te respondo 😊'],
+    ] as const) {
+      const conversationId = await customerSends(from, type)
+      await agentWith(model).answer(a.tenantId, conversationId)
+      expect(await botMessages(conversationId)).toEqual([{ body: line }])
+    }
+  })
+
+  it('a sticker alone gets no answer, like an emoji, and the agent keeps the conversation', async () => {
+    const conversationId = await customerSends('584121000805', 'sticker')
+    await agentWith(model).answer(a.tenantId, conversationId)
+    expect(await botMessages(conversationId)).toEqual([])
+    expect(await handoff(conversationId)).toBeNull()
+    expect(model.requests).toEqual([])
+  })
+
+  it('a photo with text: the model answers the text, told a file came that it cannot see', async () => {
+    const conversationId = await customerSends('584121000806', 'image', '¿Tienen de estas?')
+    await agentWith(model).answer(a.tenantId, conversationId)
+    expect(model.requests[0]!.history.at(-1)).toEqual({ from: 'customer', text: '[photo] ¿Tienen de estas?' })
+    expect(model.requests[0]!.system).toContain('never say or suggest that you saw or heard the file')
+    expect(await botMessages(conversationId)).toEqual([{ body: model.answer }])
+  })
+})
+
+describe('the fixed lines for files', () => {
+  it('while the business is closed, one line for every kind, with no promise of a quick answer', () => {
+    expect(mediaTurn([{ type: 'audio', body: null }], false)).toEqual({ reply: '¡Recibido! 😊 Ahorita estamos cerrados, pero apenas abramos te respondo.' })
+  })
+
+  it('the newest file without text decides; text and files together still go to a person', () => {
+    expect(mediaTurn([{ type: 'document', body: null }, { type: 'text', body: 'Hola' }], true)).toEqual({ reply: '¡Me llegó el documento! Dame un momentico 😊' })
+    expect(mediaTurn([{ type: 'text', body: 'Hola' }, { type: 'sticker', body: null }], true)).toBeNull()
+    expect(mediaTurn([{ type: 'text', body: 'Hola' }], true)).toBeNull()
   })
 })

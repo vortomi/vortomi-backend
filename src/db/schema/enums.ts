@@ -153,7 +153,7 @@ export const DEFAULT_HUMAN_PAUSE_MINUTES: HumanPauseMinutes = 30
 
 /** Why a conversation was passed from the agent to a person ('purchase': orders are taken by people, for now). */
 // catalog_unavailable: the customer asked about products while the company's own system could not be read.
-export const HANDOFF_REASONS = ['customer_asked', 'purchase', 'order_placed', 'agent_unsure', 'agent_error', 'limit_reached', 'catalog_unavailable'] as const
+export const HANDOFF_REASONS = ['customer_asked', 'purchase', 'order_placed', 'agent_unsure', 'agent_error', 'limit_reached', 'catalog_unavailable', 'media_received'] as const
 export type HandoffReason = (typeof HANDOFF_REASONS)[number]
 
 /**

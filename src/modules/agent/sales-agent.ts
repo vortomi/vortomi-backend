@@ -9,6 +9,7 @@ import { type BotDelivery, type BotDraft, type BotTarget, botMessageId, findTarg
 import { isOpenAt } from '../messaging/business-hours.ts'
 import { type TenantScope, withTenant } from '../tenancy/tenant-scope.ts'
 import { type PromptFacts, orderLineText, systemPrompt } from './agent-prompt.ts'
+import { historyText, mediaTurn } from './media-turn.ts'
 import { type AgentCatalog, externalCatalog, inventoryCatalog } from './agent-catalog.ts'
 import { type AgentIntent, CATALOG_DOWN_REPLY, type OrderDesk, agentTools, handOffTool } from './agent-tools.ts'
 import { dayIn } from '../../shared/time-zone.ts'
@@ -49,6 +50,8 @@ interface Context {
   useSystemRate: boolean
   /** An order the agent took is in progress: it only tells how it is going (no catalog, no new orders). */
   followUp: boolean
+  /** The customer sent only a file (fixed line, then a person) or only stickers (no answer); null: the model answers. */
+  media: ReturnType<typeof mediaTurn>
 }
 
 /**
@@ -91,6 +94,11 @@ export class SalesAgent {
     try {
       const context = await withTenant(this.db, tenantId, (scope) => this.context(scope, conversationId))
       if (!context || !this.model) return
+      if (context.media === 'silent') return
+      if (context.media) {
+        await this.acknowledgeFile(tenantId, conversationId, context, context.media.reply)
+        return
+      }
       // The customer sees "escribiendo…" while the model works (the free tier takes 20-30 s).
       void this.delivery.showTyping(tenantId, context.target, context.waMessageId)
       const intent: AgentIntent = { handoff: null, placed: null }
@@ -332,13 +340,24 @@ export class SalesAgent {
         })),
         followUp,
       },
-      history: [...recent].reverse().map((m) => ({ from: m.direction === 'in' ? 'customer' : 'business', text: m.body?.trim() || `[${m.type}]` })),
+      history: [...recent].reverse().map((m) => ({ from: m.direction === 'in' ? 'customer' : 'business', text: historyText(m.type, m.body) })),
       customerText: (firstAnswered < 0 ? recent : recent.slice(0, firstAnswered)).map((m) => m.body ?? '').join(' '),
       target,
       waMessageId: last.waMessageId,
       useSystemRate: company.useSystemRate ?? true,
       followUp,
+      media: mediaTurn(firstAnswered < 0 ? recent : recent.slice(0, firstAnswered), isOpenAt(hours, this.now(), company.timezone)),
     }
+  }
+
+  /** A file the agent cannot see or hear: the fixed line of its kind, then a person takes the conversation. */
+  private async acknowledgeFile(tenantId: string, conversationId: string, context: Context, body: string): Promise<void> {
+    const draft = await withTenant(this.db, tenantId, async (scope) => {
+      const answer = await this.store(scope, context.target, conversationId, botMessageId('sales-agent', context.waMessageId), body)
+      await this.handOff(scope, conversationId, 'media_received')
+      return answer
+    })
+    if (draft) await this.delivery.deliver(tenantId, draft)
   }
 
   private async store(scope: TenantScope, target: BotTarget, conversationId: string, clientMessageId: string, body: string): Promise<BotDraft | null> {

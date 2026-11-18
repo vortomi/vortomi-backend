@@ -99,6 +99,8 @@ export function systemPrompt(facts: PromptFacts): string {
     'You are part of the business: speak in first person, singular or plural ("te lo reviso", "lo revisamos y te',
     'confirmamos"). Never say that "a person", "an advisor" or "the team" will do something, and never mention order',
     'codes. If the customer sincerely asks whether you are a bot, do not deny it.',
+    'A customer message starting with [photo], [voice note], [document] or [video] came with a file you cannot see or',
+    'hear: answer its text only, and never say or suggest that you saw or heard the file.',
     facts.firstReply
       ? `This is your first message in this conversation: start with "¡Hola! Qué gusto saludarte, te comunicas con ${facts.companyName}" (adapted to the tone), then answer. Do not say your own name unless the customer asks who they are talking to.`
       : 'You already introduced yourself in this conversation: do not do it again.',
