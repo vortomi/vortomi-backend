@@ -2,6 +2,8 @@ import type { FastifyPluginAsync } from 'fastify'
 import type { Database } from '../db/client.ts'
 import { AccessDirectory } from '../modules/access/access-directory.ts'
 import { accessRoutes } from '../modules/access/access.routes.ts'
+import { MyAccount } from '../modules/account/my-account.ts'
+import { myAccountRoutes } from '../modules/account/my-account.routes.ts'
 import type { AccessTokenVerifier } from '../modules/access/identity.ts'
 import type { ChannelCredentials } from '../modules/channels/channel-credentials.ts'
 import { ContactService } from '../modules/contacts/contact-service.ts'
@@ -115,6 +117,8 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   const conversationQueries = new ConversationQueries()
 
   await app.register(accessRoutes, { db, directory })
+  // «Mi perfil» (mockup web-29): one's own account, devices and activity.
+  await app.register(myAccountRoutes, { directory, account: new MyAccount(db, staffAccounts ?? new SupabaseStaffAccounts(db)) })
   const usage = new UsageService()
   const invitations = new InvitationService(db)
   const tenantAdmin = new TenantAdminService(db, invitations, credentials, wabaDirectory)

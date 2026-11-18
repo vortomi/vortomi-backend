@@ -30,6 +30,7 @@ import {
 import { LastAdminError, MemberNotFoundError, SelfDisableError } from '../modules/team/team-service.ts'
 import { AssigneeCannotAttendError, ConversationNotFoundError, MentionNotMemberError } from '../modules/conversations/conversation-commands.ts'
 import { MediaNotFoundError } from '../modules/chat-media/chat-media.routes.ts'
+import { SessionUnknownError } from '../modules/account/my-account.ts'
 import { OrderNotFoundError } from '../modules/orders/order-service.ts'
 import { PaymentReferenceRequiredError, PaymentReferenceUsedError } from '../modules/orders/payment-proof.ts'
 import { InvalidPictureError } from '../modules/sale-receipts/picture.ts'
@@ -87,6 +88,7 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [ConversationNotFoundError, 404, 'conversation_not_found'],
   [MediaNotFoundError, 404, 'media_not_found'],
   [StaffSessionNotFoundError, 404, 'session_not_found'],
+  [SessionUnknownError, 409, 'session_unknown'],
   [ContactNotFoundError, 404, 'contact_not_found'],
   [TagNotFoundError, 404, 'tag_not_found'],
   [QuickReplyNotFoundError, 404, 'quick_reply_not_found'],
