@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import { sql } from 'drizzle-orm'
 import type { Database } from './db/client.ts'
 import { apiRoutes, publicApiRoutes } from './http/api.ts'
+import type { MediaStores } from './modules/chat-media/media-archiver.ts'
 import type { AccessTokenVerifier } from './modules/access/identity.ts'
 import type { ChannelCredentials } from './modules/channels/channel-credentials.ts'
 import type { CatalogSources } from './modules/catalog-source/catalog-sources.ts'
@@ -35,6 +36,8 @@ export interface AppDependencies {
   signup?: { exchange: BusinessTokenExchange; launch: SignupLaunch }
   /** Our console admins' authenticator codes (Supabase Auth); defaults to reading its schema directly. */
   authenticatorFactors?: AuthenticatorFactors
+  /** Where the chat's files are kept (Cloudinary, Supabase Storage); unset: only on the phone. */
+  mediaStores?: MediaStores
 }
 
 /** Secrets and signatures must never reach the logs. */
@@ -92,6 +95,7 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     agent: deps.agent ?? { modelReady: false, monthlyCap: 1000 },
     ...(deps.signup ? { signup: deps.signup } : {}),
     ...(deps.authenticatorFactors ? { authenticatorFactors: deps.authenticatorFactors } : {}),
+    mediaStores: deps.mediaStores ?? { cloudinary: null, supabase: null },
   })
 
   return app

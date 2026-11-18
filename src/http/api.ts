@@ -15,6 +15,8 @@ import { TagService } from '../modules/contacts/tag-service.ts'
 import { ConversationCommands } from '../modules/conversations/conversation-commands.ts'
 import { ConversationQueries } from '../modules/conversations/conversation-queries.ts'
 import { conversationRoutes } from '../modules/conversations/conversations.routes.ts'
+import { chatMediaRoutes } from '../modules/chat-media/chat-media.routes.ts'
+import type { MediaStores } from '../modules/chat-media/media-archiver.ts'
 import { OutboundService } from '../modules/messaging/outbound.service.ts'
 import { CategoryService } from '../modules/inventory/category-service.ts'
 import { InventoryService } from '../modules/inventory/inventory-service.ts'
@@ -67,6 +69,8 @@ import type { BusinessTokenExchange } from '../modules/whatsapp/meta-oauth.clien
 import { authenticate } from './authenticate.ts'
 import { toApiError } from './domain-errors.ts'
 import { installErrorHandler } from './errors.ts'
+import { PlatformAlertService } from '../modules/platform/platform-alert-service.ts'
+import { WEBHOOK_MAX_ATTEMPTS } from '../modules/inbox/webhook-processor.ts'
 
 export interface ApiOptions {
   db: Database
@@ -81,6 +85,7 @@ export interface ApiOptions {
   agent: { modelReady: boolean; monthlyCap: number }
   signup?: { exchange: BusinessTokenExchange; launch: SignupLaunch }
   authenticatorFactors?: AuthenticatorFactors
+  mediaStores: MediaStores
 }
 
 const COMPANY = '/tenants/:tenantId'
@@ -99,7 +104,7 @@ export const publicApiRoutes: FastifyPluginAsync<{ db: Database }> = async (app,
  * The panel's API (/api). Everything in here requires a verified Supabase session;
  * company data is only reached through inCompany() (membership + withTenant).
  */
-export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent, signup, authenticatorFactors }) => {
+export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent, signup, authenticatorFactors, mediaStores }) => {
   installErrorHandler(app, toApiError)
   app.decorateRequest('identity', null)
   app.addHook('onRequest', authenticate(verifier))
@@ -115,7 +120,7 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   await app.register(businessTypeRoutes, { types: businessTypes })
   const channelAdmin = new ChannelAdminService(db, credentials, wabaDirectory, tenantAdmin)
   const platformTeam = new PlatformTeamService(db, authenticatorFactors ?? new SupabaseAuthenticatorFactors(db))
-  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage, types: businessTypes, channels: channelAdmin, team: platformTeam })
+  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage, types: businessTypes, channels: channelAdmin, team: platformTeam, alerts: new PlatformAlertService(db, usage, { agentCap: agent.monthlyCap, webhookMaxAttempts: WEBHOOK_MAX_ATTEMPTS }), agentCap: agent.monthlyCap })
   await app.register(platformInvitationRoutes, { team: platformTeam })
   await app.register(usageRoutes, { prefix: COMPANY, db, usage })
   await app.register(conversationRoutes, {
@@ -125,6 +130,7 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
     commands: new ConversationCommands(conversationQueries),
     outbound: new OutboundService(db, conversationQueries, credentials, sender),
   })
+  await app.register(chatMediaRoutes, { prefix: `${COMPANY}/conversations`, db, queries: conversationQueries, stores: mediaStores })
   const customFields = new CustomFieldService()
   await app.register(customFieldRoutes, { prefix: COMPANY, db, fields: customFields })
   await app.register(setupRoutes, { prefix: COMPANY, db, setup: new SetupService(customFields) })

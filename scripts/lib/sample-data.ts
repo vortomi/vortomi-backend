@@ -196,19 +196,34 @@ export async function seedSampleData(db: Database, dataDir: string): Promise<See
       const author = inbound ? 'customer' : row['authorUserId'] ? 'staff' : 'bot'
       const waMessageId = `wamid.sample.${str(row, 'id')}`
       const at = date(row, 'createdAt')
-      await tx.insert(s.messages).values({
-        tenantId,
-        conversationId: id(row, 'conversationId'),
-        waMessageId,
-        direction: inbound ? 'in' : 'out',
-        author,
-        authorUserId: author === 'staff' ? optId(row, 'authorUserId') : null,
-        type: (str(row, 'type') === 'product' ? 'text' : str(row, 'type')) as MessageType,
-        body: opt(row, 'body'),
-        templateId: optId(row, 'templateId'),
-        waTimestamp: at,
-        createdAt: at,
-      })
+      // A message with a file (mockup web-24) is stored as its real kind, its text as the caption.
+      const media = (row['media'] ?? null) as { kind: MessageType; state: string } | null
+      const [stored] = await tx
+        .insert(s.messages)
+        .values({
+          tenantId,
+          conversationId: id(row, 'conversationId'),
+          waMessageId,
+          direction: inbound ? 'in' : 'out',
+          author,
+          authorUserId: author === 'staff' ? optId(row, 'authorUserId') : null,
+          type: media ? media.kind : ((str(row, 'type') === 'product' ? 'text' : str(row, 'type')) as MessageType),
+          body: opt(row, 'body') || null,
+          templateId: optId(row, 'templateId'),
+          waTimestamp: at,
+          createdAt: at,
+        })
+        .returning({ id: s.messages.id })
+      // The sample files exist in no store: a document over the limit stays too large, the rest gone.
+      if (media && media.kind !== 'video') {
+        await tx.insert(s.messageMedia).values({
+          tenantId,
+          messageId: stored!.id,
+          kind: media.kind as never,
+          status: media.state === 'too_large' ? 'too_large' : 'unavailable',
+          fileName: (row['media'] as { fileName?: string | null }).fileName ?? null,
+        })
+      }
       const status = opt(row, 'status')
       if (!inbound && status && status !== 'pending') {
         const reached = status === 'failed' ? ['failed'] : ['sent', 'delivered', 'read'].slice(0, ['sent', 'delivered', 'read'].indexOf(status) + 1)

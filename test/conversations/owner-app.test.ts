@@ -4,7 +4,7 @@
 // Meta sends twice changes nothing.
 import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { contacts, conversations, messages } from '../../src/db/schema/index.ts'
+import { contacts, conversations, messageMedia, messages } from '../../src/db/schema/index.ts'
 import type { MemberScope } from '../../src/modules/access/member-scope.ts'
 import { ConversationQueries } from '../../src/modules/conversations/conversation-queries.ts'
 import { IngestService } from '../../src/modules/conversations/ingest.service.ts'
@@ -186,6 +186,9 @@ describe('the photos and files of the history (last 14 days)', () => {
     expect(await stored('wamid.h.4')).toMatchObject([
       { type: 'image', body: 'Así quedó la torta', waMediaId: 'media-wamid.h.4', direction: 'in', createdAt: day(21) },
     ])
+    // And it waits for its copy, as any photo (option B).
+    const [message] = await stored('wamid.h.4')
+    expect(await t.db.select().from(messageMedia).where(eq(messageMedia.messageId, message!.id))).toMatchObject([{ kind: 'image', status: 'pending' }])
   })
 
   it('a photo that comes before its placeholder is stored, and the placeholder after it changes nothing', async () => {

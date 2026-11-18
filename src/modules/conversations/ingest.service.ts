@@ -1,4 +1,5 @@
 import { messages } from '../../db/schema/index.ts'
+import { noteMedia } from '../chat-media/media-intake.ts'
 import type { TenantScope } from '../tenancy/tenant-scope.ts'
 import type { InboundMessageEvent } from '../whatsapp/events.ts'
 import { touchConversation, upsertContact, upsertConversation } from './conversation-upsert.ts'
@@ -42,7 +43,10 @@ export class IngestService {
     const isNew = inserted.length > 0
     // Only a NEW message reopens a resolved conversation (the customer is waiting
     // again) and moves it up the inbox; a replayed webhook changes nothing.
-    if (isNew) await touchConversation(scope, conversationId, event.timestamp, true)
+    if (isNew) {
+      await touchConversation(scope, conversationId, event.timestamp, true)
+      await noteMedia(scope, [{ messageId: inserted[0]!.id, content: event }])
+    }
     return { isNew, contactId, conversationId }
   }
 }

@@ -53,6 +53,13 @@ const envSchema = z.object({
   AGENT_MODEL: z.string().regex(/^[a-z0-9.-]+$/).default('gemini-3.5-flash-lite'),
   // Answers per company and month; past it the conversations go to a person. 0 = no answers.
   AGENT_MONTHLY_REPLY_CAP: z.coerce.number().int().min(0).max(1_000_000).default(1000),
+
+  // Files of the chat (mockup web-24). Photos, voice notes and stickers go to Cloudinary
+  // ("cloudinary://<key>:<secret>@<cloud>", from its dashboard); documents up to 5 MB to Supabase
+  // Storage, with the project's secret key (sb_secret_...). Each one unset keeps its files only
+  // on the phone; nothing else changes.
+  CLOUDINARY_URL: z.string().regex(/^cloudinary:\/\/[^:\s]+:[^@\s]+@[a-z0-9_-]+$/i, 'cloudinary://<key>:<secret>@<cloud>').optional(),
+  SUPABASE_SECRET_KEY: z.string().min(20).optional(),
 }).refine(
   (env) => [env.META_SIGNUP_APP_ID, env.META_SIGNUP_APP_SECRET, env.META_SIGNUP_CONFIG_ID].filter(Boolean).length % 3 === 0,
   { message: 'META_SIGNUP_APP_ID, META_SIGNUP_APP_SECRET and META_SIGNUP_CONFIG_ID go together', path: ['META_SIGNUP_APP_ID'] },

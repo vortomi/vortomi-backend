@@ -22,6 +22,8 @@ export interface InboundMessageEvent extends EventBase {
   /** Id of the tapped button or list row, for interactive replies. */
   replyId: string | null
   waMediaId: string | null
+  /** A document's name as the sender wrote it; null or absent for everything else. */
+  fileName?: string | null
 }
 
 export interface StatusUpdateEvent extends EventBase {
@@ -44,7 +46,7 @@ export interface TemplateStatusEvent {
 }
 
 /** What a message holds, the same for every source: Meta's variants mapped onto one flat shape. */
-export type MessageContent = Pick<InboundMessageEvent, 'type' | 'body' | 'replyId' | 'waMediaId'>
+export type MessageContent = Pick<InboundMessageEvent, 'type' | 'body' | 'replyId' | 'waMediaId' | 'fileName'>
 
 /**
  * The owner wrote to a customer from the WhatsApp Business app (coexistence): Meta echoes it so the

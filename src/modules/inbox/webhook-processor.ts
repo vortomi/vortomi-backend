@@ -1,6 +1,10 @@
 import { type ParseResult, type WhatsAppEvent, eventIdOf, routingKeyOf } from '../whatsapp/events.ts'
 import type { WebhookEventRepository } from './webhook-event.repository.ts'
 
+// Attempts per webhook, waiting longer each time (30 s ×4): about a day and a half in all.
+// After the last one it is given up, and the console's alerts say so (platform-alert-service.ts).
+export const WEBHOOK_MAX_ATTEMPTS = 7
+
 /** 'unroutable': the event's number belongs to no company on the platform. */
 export type EventOutcome = 'handled' | 'unroutable'
 

@@ -52,7 +52,16 @@ export interface DownloadedMedia {
 
 /** Downloads the files customers send, by their WhatsApp media id. */
 export interface MediaDownloader {
-  downloadMedia(mediaId: string, accessToken: string): Promise<DownloadedMedia>
+  /** Files over `maxBytes` (5 MB unless said) are refused with MediaTooLargeError, before downloading when Meta says the size. */
+  downloadMedia(mediaId: string, accessToken: string, maxBytes?: number): Promise<DownloadedMedia>
+}
+
+/** The file is larger than the caller keeps: it stays on the phone. */
+export class MediaTooLargeError extends Error {
+  constructor(readonly sizeBytes: number | null) {
+    super('Media file too large')
+    this.name = 'MediaTooLargeError'
+  }
 }
 
 /** Marks the customer's message read and shows "escribiendo…" to them (up to 25 s or until we answer). */
@@ -143,7 +152,9 @@ const ALLOWED_PATHS =
 const MEDIA_HOSTS = /(^|\.)(fbsbx\.com|facebook\.com|whatsapp\.net|fbcdn\.net)$/
 /** Larger files are not kept (a payment receipt is a few hundred KB). */
 const MAX_MEDIA_BYTES = 5 * 1024 * 1024
-const mediaResponseSchema = z.object({ url: z.url(), mime_type: z.string().min(1) })
+const mediaResponseSchema = z.object({ url: z.url(), mime_type: z.string().min(1), file_size: z.coerce.number().int().nonnegative().optional() })
+/** Meta's own ceiling for any media message (Cloud API docs): nothing larger is ever read. */
+const MEDIA_HARD_LIMIT_BYTES = 100 * 1024 * 1024
 const uploadResponseSchema = z.object({ id: z.string().min(1) })
 
 const REQUEST_TIMEOUT_MS = 15_000
@@ -186,9 +197,12 @@ export class CloudApiClient implements WhatsAppSender, TypingIndicator, MediaDow
   }
 
   /** Meta gives a short-lived URL for the media id; the file is fetched from it with the same token. */
-  async downloadMedia(mediaId: string, accessToken: string): Promise<DownloadedMedia> {
+  async downloadMedia(mediaId: string, accessToken: string, maxBytes = MAX_MEDIA_BYTES): Promise<DownloadedMedia> {
+    const limit = Math.min(maxBytes, MEDIA_HARD_LIMIT_BYTES)
     const parsed = mediaResponseSchema.safeParse(await this.request('GET', mediaId, accessToken))
     if (!parsed.success) throw new WhatsAppApiError('Cloud API returned no media url', null, null)
+    // Meta says the size first: a file over the limit is never downloaded.
+    if (parsed.data.file_size !== undefined && parsed.data.file_size > limit) throw new MediaTooLargeError(parsed.data.file_size)
     const url = new URL(parsed.data.url)
     if (url.protocol !== 'https:' || !MEDIA_HOSTS.test(url.hostname)) throw new WhatsAppApiError('Unexpected media host', null, null)
     let response: Response
@@ -198,8 +212,11 @@ export class CloudApiClient implements WhatsAppSender, TypingIndicator, MediaDow
       throw new WhatsAppApiError(`Media download failed (${error instanceof Error ? error.name : 'unknown'})`, null, null)
     }
     if (!response.ok) throw new WhatsAppApiError(`Media download answered ${response.status}`, response.status, null)
+    const declared = Number(response.headers.get('content-length') ?? '0')
+    if (declared > limit) throw new MediaTooLargeError(declared)
     const bytes = Buffer.from(await response.arrayBuffer())
-    if (!bytes.length || bytes.length > MAX_MEDIA_BYTES) throw new WhatsAppApiError('Media file empty or too large', null, null)
+    if (bytes.length > limit) throw new MediaTooLargeError(bytes.length)
+    if (!bytes.length) throw new WhatsAppApiError('Media file empty', null, null)
     return { bytes, mimeType: parsed.data.mime_type }
   }
 

@@ -23,7 +23,7 @@ afterAll(async () => {
 
 describe('sample data', () => {
   it('loads every company of the prototype under the real constraints', async () => {
-    expect(await seedSampleData(t.db, DATA_DIR)).toMatchObject({ tenants: 7, conversations: 21, messages: 47 })
+    expect(await seedSampleData(t.db, DATA_DIR)).toMatchObject({ tenants: 7, conversations: 21, messages: 52 })
   })
 
   it('keeps the unread counts and the stock the prototype shows', async () => {

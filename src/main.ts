@@ -11,7 +11,7 @@ import { EventRouter } from './modules/inbox/event-router.ts'
 import { SerialQueue } from './modules/inbox/serial-queue.ts'
 import { WebhookEventRepository } from './modules/inbox/webhook-event.repository.ts'
 import { WebhookInbox } from './modules/inbox/webhook-inbox.ts'
-import { WebhookProcessor } from './modules/inbox/webhook-processor.ts'
+import { WEBHOOK_MAX_ATTEMPTS, WebhookProcessor } from './modules/inbox/webhook-processor.ts'
 import { BcvRateService } from './modules/exchange-rates/bcv-rate.service.ts'
 import { HttpBcvSource } from './modules/exchange-rates/bcv-source.ts'
 import { GeminiModel } from './modules/agent/gemini-model.ts'
@@ -31,10 +31,12 @@ import { TemplateService } from './modules/templates/template-service.ts'
 import { MetaOAuthClient } from './modules/whatsapp/meta-oauth.client.ts'
 import { parseWebhookPayload } from './modules/whatsapp/webhook-parser.ts'
 import { KeyedLanes } from './shared/keyed-lanes.ts'
+import { CloudinaryStore, parseCloudinaryUrl } from './modules/chat-media/cloudinary-store.ts'
+import { MediaArchiver, type MediaStores } from './modules/chat-media/media-archiver.ts'
+import { SupabaseStore } from './modules/chat-media/supabase-store.ts'
+import type { WhatsAppEvent } from './modules/whatsapp/events.ts'
 
 const SWEEP_INTERVAL_MS = 60_000
-// Attempts per webhook, waiting longer each time (30 s ×4): about a day and a half in all.
-const WEBHOOK_MAX_ATTEMPTS = 7
 const WEBHOOK_KEEP_MS = 30 * 24 * 60 * 60_000
 /** The agent waits this long after a customer message: several quick messages get one answer. */
 const AGENT_DEBOUNCE_MS = 4_000
@@ -42,6 +44,8 @@ const AGENT_DEBOUNCE_MS = 4_000
 const AUTO_REPLY_CONCURRENCY = 3
 // On shutdown, how long answers on their way get to finish (Gemini's free tier takes 20-30 s).
 const SHUTDOWN_ANSWERS_MS = 45_000
+/** Events that may bring a file to copy (photos, voice notes, stickers, documents). */
+const MEDIA_EVENTS = new Set<WhatsAppEvent['kind']>(['inbound_message', 'owner_echo', 'history_chunk', 'history_media'])
 
 async function main(): Promise<void> {
   if (existsSync('.env')) process.loadEnvFile('.env')
@@ -71,6 +75,11 @@ async function main(): Promise<void> {
   const signup = signupSettings(env)
   const appSecrets = [...new Set([env.META_APP_SECRET, ...env.META_ADDITIONAL_APP_SECRETS, ...(signup ? [signup.appSecret] : [])])]
   const feed = new InboxFeed()
+  // The chat's files: each store only when its key is set (env.ts).
+  const mediaStores: MediaStores = {
+    cloudinary: env.CLOUDINARY_URL ? new CloudinaryStore(parseCloudinaryUrl(env.CLOUDINARY_URL)) : null,
+    supabase: env.SUPABASE_SECRET_KEY ? new SupabaseStore(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY) : null,
+  }
   // Its logger is the app's: bound once the app exists (only used after listen()).
   const bcvLog = { warn: (message: string) => app.log.warn(message), error: (obj: object, message: string) => app.log.error(obj, message) }
   const bcv = new BcvRateService(db, new HttpBcvSource(bcvLog), bcvLog)
@@ -102,6 +111,7 @@ async function main(): Promise<void> {
       feed,
       bcv,
       catalogs,
+      mediaStores,
       agent: { modelReady: Boolean(env.GEMINI_API_KEY), monthlyCap: env.AGENT_MONTHLY_REPLY_CAP },
       ...(signup
         ? {
@@ -146,7 +156,16 @@ async function main(): Promise<void> {
     new TemplateService(db, credentials, cloudApi),
     detachedReplies,
   )
-  const processor = new WebhookProcessor(repository, parseWebhookPayload, router, app.log, WEBHOOK_MAX_ATTEMPTS)
+  const archiver = new MediaArchiver(db, credentials, cloudApi, mediaStores, app.log)
+  // A message that brings a file wakes the archiver once the webhook is stored; it copies apart.
+  const routed: Pick<EventRouter, 'handle'> = {
+    handle: async (event) => {
+      const outcome = await router.handle(event)
+      if (MEDIA_EVENTS.has(event.kind)) archiver.wake()
+      return outcome
+    },
+  }
+  const processor = new WebhookProcessor(repository, parseWebhookPayload, routed, app.log, WEBHOOK_MAX_ATTEMPTS)
   const queue = new SerialQueue(
     (id) => processor.process(id),
     (id, error) => app.log.error({ webhookEventId: id, err: error }, 'Webhook processing crashed'),
@@ -162,6 +181,9 @@ async function main(): Promise<void> {
       .catch((error: unknown) => app.log.error({ err: error }, 'Webhook purge failed'))
   }
   await runSweep()
+  // Files left waiting (a restart, a failed attempt whose turn came) are copied every minute.
+  archiver.wake()
+  const archiveTimer = setInterval(() => archiver.wake(), SWEEP_INTERVAL_MS)
   const sweepTimer = setInterval(() => void runSweep(), SWEEP_INTERVAL_MS)
   // A restart (a deploy) loses the agent's pending answers: the unanswered messages of the last
   // minutes are answered now.
@@ -179,10 +201,12 @@ async function main(): Promise<void> {
     shuttingDown = true
     app.log.info({ signal }, 'Shutting down')
     clearInterval(sweepTimer)
+    clearInterval(archiveTimer)
     await stopFeed()
     await stopBcv()
     await app.close()
     await queue.idle()
+    await archiver.idle()
     // Answers on their way finish before the process ends (Railway gives the old server time to drain).
     await replies.idle(SHUTDOWN_ANSWERS_MS)
     await salesAgent.drain(SHUTDOWN_ANSWERS_MS)

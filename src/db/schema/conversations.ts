@@ -163,6 +163,8 @@ export const messages = pgTable(
     // Deduplication by constraint, never by a check in code (design document 8.2):
     // a webhook Meta delivers twice, even to two racing workers, is stored once.
     unique('messages_tenant_wa_message_id_key').on(t.tenantId, t.waMessageId),
+    // Target of the company-checked foreign keys that hang from a message (message_media).
+    unique('messages_tenant_id_id_key').on(t.tenantId, t.id),
     unique('messages_tenant_client_message_id_key').on(t.tenantId, t.clientMessageId),
     foreignKey({
       name: 'messages_conversation_fk',

@@ -30,6 +30,7 @@
   "dependencies": {
     "@expo-google-fonts/roboto-mono": "^0.4.2",
     "@resvg/resvg-js": "^2.6.2",
+    "cloudinary": "2.11.0",
     "drizzle-orm": "0.45.3",
     "fastify": "5.12.5",
     "jose": "6.2.12",

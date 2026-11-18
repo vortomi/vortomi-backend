@@ -10,15 +10,25 @@ const isMediaType = (type: string): type is MediaType => (MEDIA_TYPES as readonl
 export const isDeliveryStatus = (status: string): status is DeliveryStatus =>
   (DELIVERY_STATUSES as readonly string[]).includes(status)
 
+/** A document name fit to show and to put in a download: no path, no control characters, 240 at most. */
+function cleanFileName(name: string | undefined): string | null {
+  const last = name?.split(/[\\/]/).at(-1) ?? ''
+  const clean = [...last].filter((c) => c >= ' ' && c !== '\u007f').join('').trim().slice(0, 240)
+  return clean ? clean : null
+}
+
 /** Maps Meta's message variants onto one flat shape. Unknown types are kept as "unsupported". */
 export function toContent(message: RawMessage): MessageContent {
-  const empty = { body: null, replyId: null, waMediaId: null }
+  const empty = { body: null, replyId: null, waMediaId: null, fileName: null }
 
   if (message.type === 'text' && message.text) return { ...empty, type: 'text', body: message.text.body }
 
   if (isMediaType(message.type)) {
     const media = message[message.type]
-    if (media) return { ...empty, type: message.type, body: media.caption ?? null, waMediaId: media.id }
+    if (media) {
+      const fileName = message.type === 'document' ? cleanFileName(media.filename) : null
+      return { ...empty, type: message.type, body: media.caption ?? null, waMediaId: media.id, fileName }
+    }
   }
 
   if (message.type === 'interactive' && message.interactive) {

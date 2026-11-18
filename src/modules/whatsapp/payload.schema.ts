@@ -34,7 +34,8 @@ export const contactSchema = z.object({
   profile: z.object({ name: z.string().optional() }).optional(),
 })
 
-const mediaSchema = z.object({ id: z.string(), caption: z.string().optional() })
+// A document also carries the name the sender gave it; Meta sends it here only.
+const mediaSchema = z.object({ id: z.string(), caption: z.string().optional(), filename: z.string().optional() })
 
 export const messageSchema = z.object({
   id: z.string().min(1),

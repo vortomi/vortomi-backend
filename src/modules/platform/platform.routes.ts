@@ -7,10 +7,15 @@ import { parseInput } from '../../http/validation.ts'
 import type { AccessDirectory } from '../access/access-directory.ts'
 import { type BusinessTypeService, newTypeInput, reclassifyInput } from '../setup/business-type-service.ts'
 import { type UsageService, monthParam } from '../usage/usage-service.ts'
+import { CompanyUsageService } from '../usage/company-usage.ts'
+import { PlatformOverviewService, overviewQuery } from '../usage/platform-overview.ts'
 import { type TenantAdminService, adminInvitationInput, channelInput, lookupInput, tenantInput, tenantStatusInput } from './tenant-admin-service.ts'
 import { type ChannelAdminService, channelLookupInput, replaceNumberInput } from './channel-admin-service.ts'
 import type { PlatformTeamService } from './platform-team-service.ts'
 import { platformTeamRoutes } from './platform-team.routes.ts'
+import type { PlatformAlertService } from './platform-alert-service.ts'
+import { TenantInsightService } from './tenant-insights.ts'
+import { tenantInsightRoutes } from './tenant-insights.routes.ts'
 
 export interface PlatformRoutesOptions {
   directory: AccessDirectory
@@ -20,6 +25,9 @@ export interface PlatformRoutesOptions {
   types: BusinessTypeService
   channels: ChannelAdminService
   team: PlatformTeamService
+  alerts: PlatformAlertService
+  /** Agent answers per company and month (env AGENT_MONTHLY_REPLY_CAP), for the companies' figures. */
+  agentCap?: number
 }
 
 const tenantParams = z.object({ tenantId: z.uuid() })
@@ -32,7 +40,7 @@ const sinceQuery = z.object({ since: z.iso.datetime({ offset: true }) })
  * session signed in with the second factor (documentations/04, D12): this console
  * reaches every company, so a stolen password alone must not open it.
  */
-export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types, channels, team }, done) => {
+export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types, channels, team, alerts, agentCap = 1000 }, done) => {
   app.addHook('preHandler', async (request) => {
     const identity = identityOf(request)
     const account = await directory.findAccount(identity.userId)
@@ -44,6 +52,8 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
 
   // Who enters this console: under the same guard as everything here.
   void app.register(platformTeamRoutes, { team })
+  // The figures about each company (mockup web-25): same guard.
+  void app.register(tenantInsightRoutes, { insights: new TenantInsightService(db, agentCap) })
 
   app.get('/tenants', async () => ({ tenants: await tenants.list() }))
 
@@ -119,7 +129,20 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
   })
 
   // Counts per company and number, never content: what billing and health need.
+  // What our team must act on (mockup web-25): computed on each look, nothing stored.
+  app.get('/alerts', () => alerts.report())
   app.get('/usage', async (request) => ({ items: await usage.monthly(db, parseInput(z.object({ month: monthParam }), request.query).month) }))
+  // «Uso y salud» (mockups web-26 and web-27): every company's traffic, deliveries, agent and
+  // health; and one company in detail. Counts only.
+  app.get('/usage/overview', (request) => {
+    const { from, to } = parseInput(overviewQuery, request.query)
+    return new PlatformOverviewService().overview(db, from, to)
+  })
+  app.get('/usage/companies/:tenantId', (request) => {
+    const { tenantId } = parseInput(tenantParams, request.params)
+    const { from, to } = parseInput(overviewQuery, request.query)
+    return new CompanyUsageService().usage(db, tenantId, from, to)
+  })
 
   done()
 }

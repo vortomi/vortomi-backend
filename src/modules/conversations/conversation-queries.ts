@@ -1,5 +1,5 @@
 import { type SQL, and, desc, eq, exists, ilike, or, sql } from 'drizzle-orm'
-import { contactTags, contacts, conversations, messageStatusEvents, messages } from '../../db/schema/index.ts'
+import { contactTags, contacts, conversations, messageMedia, messageStatusEvents, messages } from '../../db/schema/index.ts'
 import type { DeliveryStatus, MessageType } from '../../db/schema/enums.ts'
 import { type Cursor, encodeCursor, likePattern } from '../../shared/pagination.ts'
 import type { MemberScope } from '../access/member-scope.ts'
@@ -139,8 +139,13 @@ export class ConversationQueries {
               limit 1),
             case when ${messages.sendError} is not null then 'failed' else 'pending' end)
           end`,
+        // Our copy of its file, if it brought one (option B): never where it is, only how it is.
+        mediaStatus: messageMedia.status,
+        mediaFileName: messageMedia.fileName,
+        mediaSizeBytes: messageMedia.sizeBytes,
       })
       .from(messages)
+      .leftJoin(messageMedia, and(eq(messageMedia.tenantId, messages.tenantId), eq(messageMedia.messageId, messages.id)))
       .where(
         and(
           eq(messages.tenantId, scope.tenantId),
@@ -152,7 +157,10 @@ export class ConversationQueries {
       )
       .orderBy(desc(messages.createdAt), desc(messages.id))
       .limit(limit + 1)
-    const page = rows.slice(0, limit)
+    const page = rows.slice(0, limit).map(({ mediaStatus, mediaFileName, mediaSizeBytes, ...message }) => ({
+      ...message,
+      media: mediaStatus ? { status: mediaStatus, fileName: mediaFileName, sizeBytes: mediaSizeBytes } : null,
+    }))
     return { items: page, nextBeforeId: rows.length > limit ? (page.at(-1)?.id ?? null) : null }
   }
 }

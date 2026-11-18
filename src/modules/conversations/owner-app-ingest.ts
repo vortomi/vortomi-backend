@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { contacts, messages } from '../../db/schema/index.ts'
 import type { TenantScope } from '../tenancy/tenant-scope.ts'
 import type { ContactSyncEvent, HistoryChunkEvent, HistoryMediaEvent, OwnerEchoEvent } from '../whatsapp/events.ts'
+import { noteMedia } from '../chat-media/media-intake.ts'
 import { pauseAgent } from './agent-handoff.ts'
 import { touchConversation, upsertContact, upsertConversation } from './conversation-upsert.ts'
 
@@ -37,6 +38,7 @@ export class OwnerAppIngest {
       await touchConversation(scope, conversationId, event.timestamp)
       // The owner is answering: the agent leaves this conversation to them for a while.
       await pauseAgent(scope, conversationId, event.timestamp, null)
+      await noteMedia(scope, [{ messageId: inserted[0]!.id, content: event }])
     }
     return { isNew, conversationId }
   }
@@ -74,9 +76,14 @@ export class OwnerAppIngest {
           })),
         )
         .onConflictDoNothing({ target: [messages.tenantId, messages.waMessageId] })
-        .returning({ id: messages.id })
+        .returning({ id: messages.id, waMessageId: messages.waMessageId })
       stored += inserted.length
       if (inserted.length) await touchConversation(scope, conversationId, latest)
+      const byWaId = new Map(thread.messages.map((m) => [m.waMessageId, m]))
+      await noteMedia(scope, inserted.flatMap((row) => {
+        const content = byWaId.get(row.waMessageId!)
+        return content ? [{ messageId: row.id, content }] : []
+      }))
     }
     return stored
   }
@@ -96,6 +103,7 @@ export class OwnerAppIngest {
         .where(and(eq(messages.tenantId, scope.tenantId), eq(messages.waMessageId, item.waMessageId), eq(messages.type, 'unsupported')))
         .returning({ id: messages.id })
       if (placeholder.length) {
+        await noteMedia(scope, [{ messageId: placeholder[0]!.id, content: item }])
         filled++
         continue
       }
