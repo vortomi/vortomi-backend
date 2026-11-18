@@ -17,6 +17,7 @@ import type { PlatformAlertService } from './platform-alert-service.ts'
 import { TenantInsightService } from './tenant-insights.ts'
 import { tenantInsightRoutes } from './tenant-insights.routes.ts'
 import { trackConsoleActivity } from './console-activity.ts'
+import type { CompanyPasswordResets } from '../password-reset/company-password-resets.ts'
 
 export interface PlatformRoutesOptions {
   directory: AccessDirectory
@@ -27,6 +28,8 @@ export interface PlatformRoutesOptions {
   channels: ChannelAdminService
   team: PlatformTeamService
   alerts: PlatformAlertService
+  /** Password links for a company's people, and handing a company to a new owner (mockup web-30). */
+  resets: CompanyPasswordResets
   /** Agent answers per company and month (env AGENT_MONTHLY_REPLY_CAP), for the companies' figures. */
   agentCap?: number
 }
@@ -34,6 +37,8 @@ export interface PlatformRoutesOptions {
 const tenantParams = z.object({ tenantId: z.uuid() })
 const channelParams = z.object({ tenantId: z.uuid(), channelId: z.uuid() })
 const invitationParams = tenantParams.extend({ invitationId: z.uuid() })
+const memberParams = tenantParams.extend({ userId: z.uuid() })
+const ownerBody = z.object({ userId: z.uuid() })
 const sinceQuery = z.object({ since: z.iso.datetime({ offset: true }) })
 
 /**
@@ -41,7 +46,7 @@ const sinceQuery = z.object({ since: z.iso.datetime({ offset: true }) })
  * session signed in with the second factor (documentations/04, D12): this console
  * reaches every company, so a stolen password alone must not open it.
  */
-export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types, channels, team, alerts, agentCap = 1000 }, done) => {
+export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types, channels, team, alerts, resets, agentCap = 1000 }, done) => {
   app.addHook('preHandler', async (request) => {
     const identity = identityOf(request)
     const account = await directory.findAccount(identity.userId)
@@ -128,6 +133,16 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
   app.delete('/tenants/:tenantId/invitations/:invitationId', async (request, reply) => {
     const params = parseInput(invitationParams, request.params)
     await tenants.revokeInvitation(params.tenantId, params.invitationId)
+    return reply.code(204).send()
+  })
+
+  // Mockup web-30: a link for anyone of the company to choose a new password, and a new owner.
+  app.post('/tenants/:tenantId/members/:userId/password-reset', async (request, reply) => {
+    const { tenantId, userId } = parseInput(memberParams, request.params)
+    return reply.code(201).send(await resets.issueAsConsole(identityOf(request).userId, tenantId, userId))
+  })
+  app.put('/tenants/:tenantId/owner', async (request, reply) => {
+    await resets.transferOwner(id(request.params), parseInput(ownerBody, request.body).userId)
     return reply.code(204).send()
   })
 

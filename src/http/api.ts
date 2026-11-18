@@ -37,6 +37,9 @@ import { InvitationService } from '../modules/team/invitation-service.ts'
 import { invitationRoutes, publicInvitationRoutes } from '../modules/team/invitation.routes.ts'
 import { TeamService } from '../modules/team/team-service.ts'
 import { teamRoutes } from '../modules/team/team.routes.ts'
+import { CompanyPasswordResets } from '../modules/password-reset/company-password-resets.ts'
+import type { PasswordResetLinks } from '../modules/password-reset/password-reset-links.ts'
+import { companyPasswordResetRoutes, publicPasswordResetRoutes } from '../modules/password-reset/password-reset.routes.ts'
 import { PipelineService } from '../modules/workspace/pipeline-service.ts'
 import { QuickReplyService } from '../modules/workspace/quick-reply-service.ts'
 import { SettingsService } from '../modules/workspace/settings-service.ts'
@@ -90,6 +93,7 @@ export interface ApiOptions {
   authenticatorFactors?: AuthenticatorFactors
   staffAccounts?: StaffAccounts
   mediaStores: MediaStores
+  resetLinks: PasswordResetLinks
 }
 
 const COMPANY = '/tenants/:tenantId'
@@ -98,17 +102,18 @@ const COMPANY = '/tenants/:tenantId'
  * The few answers given without a session (/api/public): an invitation link shows who it is
  * for before the person has an account. Same error answers as the rest of the API.
  */
-export const publicApiRoutes: FastifyPluginAsync<{ db: Database }> = async (app, { db }) => {
+export const publicApiRoutes: FastifyPluginAsync<{ db: Database; resetLinks: PasswordResetLinks }> = async (app, { db, resetLinks }) => {
   installErrorHandler(app, toApiError)
   await app.register(publicInvitationRoutes, { invitations: new InvitationService(db) })
   await app.register(publicPlatformInvitationRoutes, { team: new PlatformTeamService(db, new SupabaseAuthenticatorFactors(db)) })
+  await app.register(publicPasswordResetRoutes, { links: resetLinks })
 }
 
 /**
  * The panel's API (/api). Everything in here requires a verified Supabase session;
  * company data is only reached through inCompany() (membership + withTenant).
  */
-export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent, signup, authenticatorFactors, staffAccounts, mediaStores }) => {
+export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent, signup, authenticatorFactors, staffAccounts, mediaStores, resetLinks }) => {
   installErrorHandler(app, toApiError)
   app.decorateRequest('identity', null)
   app.addHook('onRequest', authenticate(verifier))
@@ -125,8 +130,10 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   const businessTypes = new BusinessTypeService(db)
   await app.register(businessTypeRoutes, { types: businessTypes })
   const channelAdmin = new ChannelAdminService(db, credentials, wabaDirectory, tenantAdmin)
-  const platformTeam = new PlatformTeamService(db, authenticatorFactors ?? new SupabaseAuthenticatorFactors(db), staffAccounts ?? new SupabaseStaffAccounts(db))
-  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage, types: businessTypes, channels: channelAdmin, team: platformTeam, alerts: new PlatformAlertService(db, usage, { agentCap: agent.monthlyCap, webhookMaxAttempts: WEBHOOK_MAX_ATTEMPTS }), agentCap: agent.monthlyCap })
+  const accounts = staffAccounts ?? new SupabaseStaffAccounts(db)
+  const platformTeam = new PlatformTeamService(db, authenticatorFactors ?? new SupabaseAuthenticatorFactors(db), accounts, resetLinks)
+  const companyResets = new CompanyPasswordResets(db, resetLinks, accounts)
+  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage, types: businessTypes, channels: channelAdmin, team: platformTeam, resets: companyResets, alerts: new PlatformAlertService(db, usage, { agentCap: agent.monthlyCap, webhookMaxAttempts: WEBHOOK_MAX_ATTEMPTS }), agentCap: agent.monthlyCap })
   await app.register(platformInvitationRoutes, { team: platformTeam })
   await app.register(usageRoutes, { prefix: COMPANY, db, usage })
   await app.register(conversationRoutes, {
@@ -150,6 +157,7 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   await app.register(reportsRoutes, { prefix: COMPANY, db, reports: new ReportService() })
   await app.register(exchangeRateRoutes, { prefix: COMPANY, db, rates: new ExchangeRateService(), bcv, ...(catalogs ? { catalogs } : {}) })
   await app.register(teamRoutes, { prefix: COMPANY, db, team: new TeamService(), invitations })
+  await app.register(companyPasswordResetRoutes, { prefix: COMPANY, db, resets: companyResets })
   await app.register(channelSignupRoutes, {
     prefix: COMPANY,
     db,

@@ -6,6 +6,7 @@ import { type PlatformTeamAction, platformActivity, platformInvitations, platfor
 import type { VerifiedIdentity } from '../access/identity.ts'
 import { InvitationEmailMismatchError, InvitationExpiredError, InvitationNotFoundError } from '../team/invitation-service.ts'
 import { hashOf, invitationExpiry, newToken } from '../team/invitation-token.ts'
+import { type IssuedReset, type PasswordResetLinks, ResetUnavailableError } from '../password-reset/password-reset-links.ts'
 import type { AuthenticatorFactors } from './authenticator-factors.ts'
 import { type StaffAccount, type StaffAccounts, type StaffSession, browserOf, maskIp, systemOf } from './staff-accounts.ts'
 
@@ -65,6 +66,8 @@ export class PlatformTeamService {
     private readonly factors: AuthenticatorFactors,
     // Last access, code dates and devices (Supabase Auth); without it the page shows only the list.
     private readonly staff: StaffAccounts | null = null,
+    // Password links (mockup web-30); without it the option answers reset_unavailable.
+    private readonly links: PasswordResetLinks | null = null,
   ) {}
 
   /**
@@ -257,6 +260,18 @@ export class PlatformTeamService {
     const admin = await this.otherAdmin(actorId, userId)
     await this.factors.reset(userId)
     await this.record(this.db, actorId, 'admin.code_reset', admin.email)
+  }
+
+  /**
+   * A link for another staff member to choose a new password (mockup web-30). Nobody gives one to
+   * themselves; with a single staff member left, the Supabase dashboard is the way back in.
+   */
+  async resetPassword(actorId: string, userId: string): Promise<IssuedReset> {
+    const admin = await this.otherAdmin(actorId, userId)
+    if (!this.links) throw new ResetUnavailableError()
+    const issued = await this.links.issue({ userId, createdBy: actorId, tenantId: null })
+    await this.record(this.db, actorId, 'admin.password_reset', admin.email)
+    return issued
   }
 
   /** They stop entering the console at once (every request checks the role). Company memberships stay. */

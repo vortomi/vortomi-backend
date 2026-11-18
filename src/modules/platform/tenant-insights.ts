@@ -171,7 +171,7 @@ export class TenantInsightService {
       this.db.execute(sql`
         select u.name as "name", u.email as "email" from memberships ms join users u on u.id = ms.user_id
         where ms.tenant_id = ${tenantId} and ms.role = 'admin' and ms.status = 'active'
-        order by ms.created_at, u.name limit 1`),
+        order by ms.is_owner desc, ms.created_at, u.name limit 1`),
     ])
 
     const counts = rowsOf<{ current: number; previous: number }>(period)[0]!

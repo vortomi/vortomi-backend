@@ -498,6 +498,13 @@
       "when": 1795021891877,
       "tag": "0070_staff_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1795026324737,
+      "tag": "0071_password_resets",
+      "breakpoints": true
     }
   ]
 }

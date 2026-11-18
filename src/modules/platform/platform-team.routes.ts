@@ -36,6 +36,10 @@ export const platformTeamRoutes: FastifyPluginCallback<PlatformTeamRoutesOptions
     await team.resetCode(identityOf(request).userId, parseInput(adminParams, request.params).userId)
     return reply.code(204).send()
   })
+  // Mockup web-30: a link for another staff member to choose a new password.
+  app.post('/team/admins/:userId/password-reset', async (request, reply) =>
+    reply.code(201).send(await team.resetPassword(identityOf(request).userId, parseInput(adminParams, request.params).userId)),
+  )
   app.delete('/team/admins/:userId', async (request, reply) => {
     await team.remove(identityOf(request).userId, parseInput(adminParams, request.params).userId)
     return reply.code(204).send()

@@ -25,6 +25,14 @@ export class SelfDisableError extends Error {
   }
 }
 
+/** The owner stays an active admin; the console hands the company to someone else first. */
+export class OwnerProtectedError extends Error {
+  constructor() {
+    super('The owner of the company cannot be demoted or disabled')
+    this.name = 'OwnerProtectedError'
+  }
+}
+
 export const memberUpdate = z.object({
   role: z.enum(MEMBER_ROLES),
   canSeeOthers: z.boolean(),
@@ -51,6 +59,7 @@ export class TeamService {
         role: memberships.role,
         status: memberships.status,
         canSeeOthers: memberships.canSeeOthers,
+        isOwner: memberships.isOwner,
         channelAccountIds: sql<string[]>`coalesce((
           select array_agg(mc.channel_account_id order by mc.channel_account_id) from ${membershipChannels} mc
           where mc.tenant_id = ${memberships.tenantId} and mc.user_id = ${memberships.userId}), '{}')`,
@@ -67,6 +76,7 @@ export class TeamService {
   async update(scope: MemberScope, userId: string, input: MemberUpdate): Promise<void> {
     const { tx, tenantId } = scope
     const current = await this.current(scope, userId)
+    if (current.isOwner && input.role !== 'admin') throw new OwnerProtectedError()
     if (current.role === 'admin' && input.role !== 'admin') await this.assertAnotherAdmin(scope, userId)
 
     await tx
@@ -83,6 +93,7 @@ export class TeamService {
     const current = await this.current(scope, userId)
     if (status === 'disabled') {
       if (userId === scope.member.userId) throw new SelfDisableError()
+      if (current.isOwner) throw new OwnerProtectedError()
       if (current.role === 'admin') await this.assertAnotherAdmin(scope, userId)
     }
     await scope.tx
@@ -93,7 +104,7 @@ export class TeamService {
 
   private async current(scope: MemberScope, userId: string) {
     const [row] = await scope.tx
-      .select({ role: memberships.role, status: memberships.status })
+      .select({ role: memberships.role, status: memberships.status, isOwner: memberships.isOwner })
       .from(memberships)
       .where(and(eq(memberships.tenantId, scope.tenantId), eq(memberships.userId, userId)))
     if (!row) throw new MemberNotFoundError()

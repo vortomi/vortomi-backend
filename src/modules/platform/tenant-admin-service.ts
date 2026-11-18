@@ -157,7 +157,17 @@ export class TenantAdminService {
         .where(eq(channelAccounts.tenantId, tenantId))
         .orderBy(asc(channelAccounts.label)),
       this.db
-        .select({ userId: users.id, name: users.name, email: users.email, role: memberships.role, status: memberships.status })
+        .select({
+          userId: users.id,
+          name: users.name,
+          email: users.email,
+          role: memberships.role,
+          status: memberships.status,
+          isOwner: memberships.isOwner,
+          // The console may name them (mockup web-30): «también en Mueblería Valle».
+          otherCompanies: sql<string[]>`coalesce((select array_agg(t.name order by t.name) from ${memberships} o join ${tenants} t on t.id = o.tenant_id
+            where o.user_id = ${memberships.userId} and o.tenant_id <> ${memberships.tenantId}), '{}')`,
+        })
         .from(memberships)
         .innerJoin(users, eq(users.id, memberships.userId))
         .where(eq(memberships.tenantId, tenantId))

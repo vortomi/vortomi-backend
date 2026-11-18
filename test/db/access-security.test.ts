@@ -58,7 +58,7 @@ describe('a company only sees its own team', () => {
     const intrusion = withTenant(t.db, a.tenantId, ({ tx }) =>
       tx.insert(memberships).values({ tenantId: b.tenantId, userId: laura, role: 'agent' }),
     )
-    expect(await dbError(intrusion)).toMatch(/row-level security/)
+    expect(await dbError(intrusion)).toMatch(/row-level security|permission denied/)
   })
 
   it('cannot create people, nor delete memberships', async () => {

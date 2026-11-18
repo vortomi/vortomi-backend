@@ -44,6 +44,8 @@ export const PLATFORM_TEAM_ACTIONS = [
   // Staff (mockup web-28): one device signed out, or all of a person's.
   'admin.session_ended',
   'admin.sessions_ended',
+  // Mockup web-30: a link for another staff member to choose a new password.
+  'admin.password_reset',
 ] as const
 export type PlatformTeamAction = (typeof PLATFORM_TEAM_ACTIONS)[number]
 
@@ -80,6 +82,9 @@ export const CONSOLE_ACTIONS = [
   'tenant.invitation_revoked',
   'business_type.created',
   'business_type.reclassified',
+  // Mockup web-30: a password link for someone of a company, and a new owner.
+  'tenant.password_reset',
+  'tenant.owner_changed',
 ] as const
 export type ConsoleAction = (typeof CONSOLE_ACTIONS)[number]
 

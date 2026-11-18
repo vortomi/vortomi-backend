@@ -37,14 +37,20 @@ export const memberships = pgTable(
     status: text('status', { enum: MEMBERSHIP_STATUSES }).notNull().default('invited'),
     // Sees conversations assigned to someone else (always true for admins).
     canSeeOthers: boolean('can_see_others').notNull().default(false),
+    // The company's owner (mockup web-30): the one admin who gives their staff password links.
+    // Set by the server only (first admin to join; the console transfers it), never by the company.
+    isOwner: boolean('is_owner').notNull().default(false),
     createdAt: createdAtColumn(),
   },
   (t) => [
     primaryKey({ name: 'memberships_pkey', columns: [t.tenantId, t.userId] }),
+    uniqueIndex('memberships_one_owner_key').on(t.tenantId).where(sql`${t.isOwner}`),
     index('memberships_user_idx').on(t.userId),
     check('memberships_role_check', oneOf(t.role, MEMBER_ROLES)),
     check('memberships_status_check', oneOf(t.status, MEMBERSHIP_STATUSES)),
     check('memberships_admin_sees_all_check', sql`${t.role} <> 'admin' or ${t.canSeeOthers}`),
+    // The owner stays an active admin: it is handed over first (console), never just demoted.
+    check('memberships_owner_check', sql`not ${t.isOwner} or (${t.role} = 'admin' and ${t.status} = 'active')`),
   ],
 )
 

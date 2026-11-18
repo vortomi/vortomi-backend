@@ -53,6 +53,8 @@ export interface MemberOptions {
   status?: MembershipStatus
   canSeeOthers?: boolean
   channelAccountIds?: string[]
+  /** The company's owner (mockup web-30); must be an active admin. */
+  isOwner?: boolean
 }
 
 export async function seedMembership(db: Database, tenantId: string, userId: string, options: MemberOptions = {}): Promise<void> {
@@ -63,6 +65,7 @@ export async function seedMembership(db: Database, tenantId: string, userId: str
     role,
     status: options.status ?? 'active',
     canSeeOthers: options.canSeeOthers ?? role === 'admin',
+    isOwner: options.isOwner ?? false,
   })
   for (const channelAccountId of options.channelAccountIds ?? []) {
     await db.insert(membershipChannels).values({ tenantId, userId, channelAccountId })

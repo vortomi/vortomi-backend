@@ -13,7 +13,9 @@ import { webhookRoutes } from './modules/whatsapp/webhook.routes.ts'
 import type { BusinessTokenExchange } from './modules/whatsapp/meta-oauth.client.ts'
 import type { SignupLaunch } from './modules/channels/channel-signup.routes.ts'
 import type { AuthenticatorFactors } from './modules/platform/authenticator-factors.ts'
-import type { StaffAccounts } from './modules/platform/staff-accounts.ts'
+import { type StaffAccounts, SupabaseStaffAccounts } from './modules/platform/staff-accounts.ts'
+import type { AccountPasswords } from './modules/password-reset/account-passwords.ts'
+import { PasswordResetLinks } from './modules/password-reset/password-reset-links.ts'
 
 export interface AppDependencies {
   db: Database
@@ -39,6 +41,8 @@ export interface AppDependencies {
   authenticatorFactors?: AuthenticatorFactors
   /** Our staff's last access and devices (Supabase Auth); defaults to reading its schema directly. */
   staffAccounts?: StaffAccounts
+  /** Sets passwords in Supabase Auth (secret key); without it password links answer reset_unavailable. */
+  accountPasswords?: AccountPasswords | null
   /** Where the chat's files are kept (Cloudinary, Supabase Storage); unset: only on the phone. */
   mediaStores?: MediaStores
 }
@@ -81,8 +85,11 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     onVerifiedPayload: deps.onVerifiedPayload,
   })
 
+  // Password links (mockup web-30): the public page uses them, the panel and the console give them.
+  const resetLinks = new PasswordResetLinks(deps.db, deps.accountPasswords ?? null, deps.staffAccounts ?? new SupabaseStaffAccounts(deps.db))
+
   // Registered apart from /api so the session check there does not apply to it.
-  await app.register(publicApiRoutes, { prefix: '/api/public', db: deps.db })
+  await app.register(publicApiRoutes, { prefix: '/api/public', db: deps.db, resetLinks })
 
   await app.register(apiRoutes, {
     prefix: '/api',
@@ -100,6 +107,7 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     ...(deps.authenticatorFactors ? { authenticatorFactors: deps.authenticatorFactors } : {}),
     ...(deps.staffAccounts ? { staffAccounts: deps.staffAccounts } : {}),
     mediaStores: deps.mediaStores ?? { cloudinary: null, supabase: null },
+    resetLinks,
   })
 
   return app

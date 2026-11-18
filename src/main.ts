@@ -34,6 +34,7 @@ import { KeyedLanes } from './shared/keyed-lanes.ts'
 import { CloudinaryStore, parseCloudinaryUrl } from './modules/chat-media/cloudinary-store.ts'
 import { MediaArchiver, type MediaStores } from './modules/chat-media/media-archiver.ts'
 import { SupabaseStore } from './modules/chat-media/supabase-store.ts'
+import { SupabaseAccountPasswords } from './modules/password-reset/account-passwords.ts'
 import type { WhatsAppEvent } from './modules/whatsapp/events.ts'
 
 const SWEEP_INTERVAL_MS = 60_000
@@ -112,6 +113,8 @@ async function main(): Promise<void> {
       bcv,
       catalogs,
       mediaStores,
+      // Password links (mockup web-30): Supabase Auth admin API, with the same secret key as Storage.
+      accountPasswords: env.SUPABASE_SECRET_KEY ? new SupabaseAccountPasswords(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY) : null,
       agent: { modelReady: Boolean(env.GEMINI_API_KEY), monthlyCap: env.AGENT_MONTHLY_REPLY_CAP },
       ...(signup
         ? {

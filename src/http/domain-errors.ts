@@ -27,7 +27,16 @@ import {
   InvitationNotFoundError,
   UnknownChannelError,
 } from '../modules/team/invitation-service.ts'
-import { LastAdminError, MemberNotFoundError, SelfDisableError } from '../modules/team/team-service.ts'
+import { LastAdminError, MemberNotFoundError, OwnerProtectedError, SelfDisableError } from '../modules/team/team-service.ts'
+import { WeakPasswordError } from '../modules/password-reset/account-passwords.ts'
+import { ResetExpiredError, ResetNotFoundError, ResetUnavailableError } from '../modules/password-reset/password-reset-links.ts'
+import {
+  MemberElsewhereError,
+  OwnResetError,
+  OwnerNotAdminError,
+  OwnerRequiredError,
+  StaffMemberError,
+} from '../modules/password-reset/company-password-resets.ts'
 import { AssigneeCannotAttendError, ConversationNotFoundError, MentionNotMemberError } from '../modules/conversations/conversation-commands.ts'
 import { MediaNotFoundError } from '../modules/chat-media/chat-media.routes.ts'
 import { SessionUnknownError } from '../modules/account/my-account.ts'
@@ -85,6 +94,16 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [UnknownChannelError, 422, 'unknown_channel'],
   [LastAdminError, 409, 'last_admin'],
   [SelfDisableError, 409, 'cannot_disable_self'],
+  [OwnerProtectedError, 409, 'owner_protected'],
+  [ResetNotFoundError, 404, 'reset_not_found'],
+  [ResetExpiredError, 410, 'reset_expired'],
+  [ResetUnavailableError, 409, 'reset_unavailable'],
+  [WeakPasswordError, 422, 'weak_password'],
+  [OwnerRequiredError, 403, 'owner_required'],
+  [MemberElsewhereError, 409, 'member_elsewhere'],
+  [StaffMemberError, 409, 'staff_member'],
+  [OwnResetError, 422, 'not_on_yourself'],
+  [OwnerNotAdminError, 422, 'owner_not_admin'],
   [ConversationNotFoundError, 404, 'conversation_not_found'],
   [MediaNotFoundError, 404, 'media_not_found'],
   [StaffSessionNotFoundError, 404, 'session_not_found'],
@@ -157,6 +176,9 @@ const CONSTRAINT_CONFLICTS: Record<string, string> = {
   stock_movements_sign_check: 'invalid_movement',
   // Two people saving the same reference at once: the service checks first, the index has the last word.
   orders_paid_reference_key: 'payment_reference_used',
+  // The owner stays an active admin (the service refuses first); one owner per company.
+  memberships_owner_check: 'owner_protected',
+  memberships_one_owner_key: 'owner_exists',
 }
 // 23505 unique, 23503 foreign key, 23514 check.
 const CONFLICT_CODES = new Set(['23505', '23503', '23514'])

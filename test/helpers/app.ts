@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { type AppDependencies, buildApp } from '../../src/app.ts'
+import type { AccountPasswords } from '../../src/modules/password-reset/account-passwords.ts'
 import type { Database } from '../../src/db/client.ts'
 import { ChannelCredentials } from '../../src/modules/channels/channel-credentials.ts'
 import { CredentialCipher } from '../../src/modules/channels/credential-cipher.ts'
@@ -129,6 +130,18 @@ export class FakeAuthenticatorFactors implements AuthenticatorFactors {
   }
 }
 
+/** Stands in for Supabase Auth's admin API: the last password set for each person, and how many times. */
+export class FakeAccountPasswords implements AccountPasswords {
+  readonly passwordOf = new Map<string, string>()
+  changes = 0
+
+  set(userId: string, password: string): Promise<void> {
+    this.passwordOf.set(userId, password)
+    this.changes += 1
+    return Promise.resolve()
+  }
+}
+
 /** Stands in for Supabase Auth's accounts and sessions of our staff. */
 export class FakeStaffAccounts implements StaffAccounts {
   readonly accountsById = new Map<string, StaffAccount>()
@@ -189,6 +202,7 @@ export function buildTestApp(db: Database, overrides: Partial<AppDependencies> =
       authenticatorFactors: new FakeAuthenticatorFactors(),
       // PGlite has no auth.sessions either.
       staffAccounts: new FakeStaffAccounts(),
+      accountPasswords: new FakeAccountPasswords(),
       ...overrides,
     },
     false,

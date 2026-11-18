@@ -191,6 +191,19 @@ export class InvitationService {
         .insert(memberships)
         .values({ tenantId, userId, ...membership })
         .onConflictDoUpdate({ target: [memberships.tenantId, memberships.userId], set: membership })
+      // The first admin to join a company that has no owner yet becomes it (mockup web-30).
+      if (invitation.role === 'admin') {
+        await tx
+          .update(memberships)
+          .set({ isOwner: true })
+          .where(
+            and(
+              eq(memberships.tenantId, tenantId),
+              eq(memberships.userId, userId),
+              sql`not exists (select 1 from ${memberships} o where o.tenant_id = ${tenantId}::uuid and o.is_owner)`,
+            ),
+          )
+      }
 
       // Numbers removed since the invitation was sent are skipped.
       const channels = invitation.channelAccountIds.length
