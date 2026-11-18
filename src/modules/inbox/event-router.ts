@@ -63,6 +63,9 @@ export class EventRouter implements WhatsAppEventHandler {
         case 'history_chunk':
           await this.ownerApp.recordHistory(scope, route.channelAccountId, event)
           return null
+        case 'history_media':
+          await this.ownerApp.recordHistoryMedia(scope, route.channelAccountId, event)
+          return null
         case 'contact_sync':
           await this.ownerApp.applyContacts(scope, route.channelAccountId, event)
           return null

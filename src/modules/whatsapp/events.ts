@@ -78,6 +78,27 @@ export interface HistoryChunkEvent {
   threads: { waId: string; messages: HistoryMessage[] }[]
 }
 
+/** A photo, audio, video, document or sticker of the history, sent apart from its placeholder. */
+export interface HistoryMediaItem extends MessageContent {
+  /** Same id as the placeholder of the history chunk: it is how the two meet. */
+  waMessageId: string
+  timestamp: Date
+  /** The customer of the thread; null when Meta only gives a username (it can then only fill a placeholder). */
+  customerWaId: string | null
+  fromBusiness: boolean
+}
+
+/**
+ * The media of the history, for messages of the last 14 days before onboarding: Meta first sends a
+ * content-less "media_placeholder" in the history chunk and then each file in a webhook of its own.
+ * Either may arrive first.
+ */
+export interface HistoryMediaEvent {
+  kind: 'history_media'
+  phoneNumberId: string
+  items: HistoryMediaItem[]
+}
+
 /** Contacts of the owner's app: saved or edited ('add'), or deleted ('remove'). */
 export interface ContactSyncEvent {
   kind: 'contact_sync'
@@ -104,7 +125,7 @@ export interface AccountUpdateEvent {
 }
 
 /** Events about a number's messages, routed by phone_number_id. */
-export type NumberEvent = InboundMessageEvent | StatusUpdateEvent | OwnerEchoEvent | HistoryChunkEvent | ContactSyncEvent
+export type NumberEvent = InboundMessageEvent | StatusUpdateEvent | OwnerEchoEvent | HistoryChunkEvent | HistoryMediaEvent | ContactSyncEvent
 
 export type WhatsAppEvent = NumberEvent | TemplateStatusEvent | AccountUpdateEvent
 
@@ -120,6 +141,8 @@ export const eventIdOf = (event: WhatsAppEvent): string => {
       return `account ${event.event}`
     case 'history_chunk':
       return `history ${event.phase}/${event.chunkOrder}`
+    case 'history_media':
+      return `history media ${event.items[0]?.waMessageId ?? 'none'}`
     case 'contact_sync':
       return `contacts ${event.contacts.length}`
     case 'inbound_message':
@@ -140,6 +163,7 @@ export type SkipReason =
   | 'invalid_history'
   /** The owner turned off sharing the chat history in the WhatsApp Business app (Meta 2593109). */
   | 'history_declined'
+  | 'invalid_history_media'
   | 'invalid_contact_sync'
   | 'invalid_account_update'
 

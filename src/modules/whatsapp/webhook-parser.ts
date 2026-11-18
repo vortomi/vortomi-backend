@@ -1,6 +1,6 @@
 import type { ParseResult, StatusUpdateEvent } from './events.ts'
 import { fromUnixSeconds, isDeliveryStatus, toContent } from './message-content.ts'
-import { parseContactSync, parseEchoes, parseHistory } from './owner-app-parser.ts'
+import { parseContactSync, parseEchoes, parseHistory, parseHistoryMedia } from './owner-app-parser.ts'
 import { accountUpdateSchema, contactSchema, envelopeSchema, messageSchema, statusSchema, templateStatusSchema } from './payload.schema.ts'
 
 /** Fields about a number (routed by its phone_number_id); others are ignored. */
@@ -73,7 +73,9 @@ export function parseWebhookPayload(payload: unknown): ParseResult {
         continue
       }
       if (change.field === 'history') {
-        parseHistory(change.value['history'], phoneNumberId, result)
+        // The same field carries the chats (a "history" array) and, apart, the media of the last 14 days.
+        if (change.value['history'] === undefined) parseHistoryMedia(change.value, phoneNumberId, result)
+        else parseHistory(change.value['history'], phoneNumberId, result)
         continue
       }
       if (change.field === 'smb_app_state_sync') {

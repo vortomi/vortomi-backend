@@ -1,7 +1,7 @@
-import { sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { contacts, messages } from '../../db/schema/index.ts'
 import type { TenantScope } from '../tenancy/tenant-scope.ts'
-import type { ContactSyncEvent, HistoryChunkEvent, OwnerEchoEvent } from '../whatsapp/events.ts'
+import type { ContactSyncEvent, HistoryChunkEvent, HistoryMediaEvent, OwnerEchoEvent } from '../whatsapp/events.ts'
 import { pauseAgent } from './agent-handoff.ts'
 import { touchConversation, upsertContact, upsertConversation } from './conversation-upsert.ts'
 
@@ -79,6 +79,39 @@ export class OwnerAppIngest {
       if (inserted.length) await touchConversation(scope, conversationId, latest)
     }
     return stored
+  }
+
+  /**
+   * The media of the history (last 14 days). Its placeholder, if already stored, becomes the photo,
+   * audio or document it was, with its caption; a message that already has its media is left alone.
+   * When the file comes first, it is stored as the history would have stored it, and the placeholder
+   * arriving later changes nothing. Returns how many messages got their media.
+   */
+  async recordHistoryMedia(scope: TenantScope, channelAccountId: string, event: HistoryMediaEvent): Promise<number> {
+    let filled = 0
+    for (const item of event.items) {
+      const placeholder = await scope.tx
+        .update(messages)
+        .set({ type: item.type, body: item.body, waMediaId: item.waMediaId })
+        .where(and(eq(messages.tenantId, scope.tenantId), eq(messages.waMessageId, item.waMessageId), eq(messages.type, 'unsupported')))
+        .returning({ id: messages.id })
+      if (placeholder.length) {
+        filled++
+        continue
+      }
+      // Without the customer it went to there is no conversation to put it in: only a placeholder could take it.
+      if (!item.customerWaId) continue
+      const stored = await this.recordHistory(scope, channelAccountId, {
+        kind: 'history_chunk',
+        phoneNumberId: event.phoneNumberId,
+        phase: 0,
+        chunkOrder: 0,
+        progress: 0,
+        threads: [{ waId: item.customerWaId, messages: [item] }],
+      })
+      filled += stored
+    }
+    return filled
   }
 
   /**

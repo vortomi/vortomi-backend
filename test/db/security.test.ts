@@ -128,8 +128,12 @@ describe('least privilege for tenant-scoped code', () => {
   })
 
   it('cannot rewrite a stored message', async () => {
+    // Columns never granted are refused by permissions...
+    const reassign = withTenant(t.db, a.tenantId, ({ tx }) => tx.update(messages).set({ direction: 'out' }))
+    expect(await dbError(reassign)).toMatch(/permission denied/)
+    // ...and the ones granted to fill a history placeholder (0067) by the trigger, for anything else.
     const rewrite = withTenant(t.db, a.tenantId, ({ tx }) => tx.update(messages).set({ body: 'otro texto' }))
-    expect(await dbError(rewrite)).toMatch(/permission denied/)
+    expect(await dbError(rewrite)).toMatch(/already has its send result|never rewritten/)
   })
 })
 

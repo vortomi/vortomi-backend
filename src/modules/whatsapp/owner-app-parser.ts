@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { ContactSyncEvent, HistoryChunkEvent, HistoryMessage, ParseResult } from './events.ts'
+import type { ContactSyncEvent, HistoryChunkEvent, HistoryMediaItem, HistoryMessage, ParseResult } from './events.ts'
 import { fromUnixSeconds, toContent } from './message-content.ts'
 import { messageSchema } from './payload.schema.ts'
 
@@ -109,7 +109,8 @@ export function parseHistory(raw: unknown, phoneNumberId: string, result: ParseR
           timestamp: fromUnixSeconds(message.data.timestamp),
           // Anything not written by the customer of the thread was written by the business.
           fromBusiness: message.data.from !== waId,
-          // Media arrives as "media_placeholder", without the file: it reads as unsupported.
+          // Media arrives as "media_placeholder", without the file: it reads as unsupported until its
+          // own webhook fills it (parseHistoryMedia; only for the last 14 days).
           ...toContent(message.data),
         })
       }
@@ -124,6 +125,37 @@ export function parseHistory(raw: unknown, phoneNumberId: string, result: ParseR
       threads,
     })
   }
+}
+
+/** The business's own media of the history: identified by the customer it went to ("to"). */
+const mediaEchoSchema = messageSchema.extend({ to: z.string().optional() })
+const MEDIA_KINDS: ReadonlySet<string> = new Set(['image', 'audio', 'video', 'document', 'sticker'])
+
+/**
+ * The media webhook of the history (field "history", but no "history" array): the customer's files
+ * in "messages", the business's own in "message_echoes". Only real media is kept: anything else
+ * would overwrite a placeholder with nothing.
+ */
+export function parseHistoryMedia(value: Record<string, unknown>, phoneNumberId: string, result: ParseResult): void {
+  const items: HistoryMediaItem[] = []
+  const take = (raw: unknown, fromBusiness: boolean) => {
+    const message = mediaEchoSchema.safeParse(raw)
+    const content = message.success ? toContent(message.data) : null
+    if (!message.success || !content?.waMediaId || !MEDIA_KINDS.has(content.type)) {
+      result.skipped.push('invalid_history_media')
+      return
+    }
+    items.push({
+      waMessageId: message.data.id,
+      timestamp: fromUnixSeconds(message.data.timestamp),
+      customerWaId: fromBusiness ? waIdOf(message.data.to) : message.data.from,
+      fromBusiness,
+      ...content,
+    })
+  }
+  for (const raw of Array.isArray(value['messages']) ? value['messages'] : []) take(raw, false)
+  for (const raw of Array.isArray(value['message_echoes']) ? value['message_echoes'] : []) take(raw, true)
+  if (items.length) result.events.push({ kind: 'history_media', phoneNumberId, items })
 }
 
 export function parseContactSync(raw: unknown, phoneNumberId: string, result: ParseResult): void {

@@ -13,6 +13,7 @@ import { EventRouter } from '../../src/modules/inbox/event-router.ts'
 import { ChannelDirectory } from '../../src/modules/tenancy/channel-directory.ts'
 import { withTenant } from '../../src/modules/tenancy/tenant-scope.ts'
 import { parseWebhookPayload } from '../../src/modules/whatsapp/webhook-parser.ts'
+import { dbError } from '../helpers/db-error.ts'
 import { PHONE_UNKNOWN, textChange, unix, webhook } from '../helpers/meta-payloads.ts'
 import { createTestDatabase, type TestDatabase } from '../helpers/test-db.ts'
 import { type SeededTenant, seedTwoTenants } from '../helpers/tenants.ts'
@@ -156,6 +157,74 @@ describe('the chats the owner\'s app shares after connecting', () => {
       }),
     )
     expect(await deliver(declined)).toEqual({ outcomes: [], skipped: ['history_declined'] })
+  })
+})
+
+describe('the photos and files of the history (last 14 days)', () => {
+  // Meta's separate media webhook: field "history" with no "history" array, the file in "messages"
+  // (customer's) or "message_echoes" (the business's own).
+  const media = (value: object) => webhook(coexChange(a.phoneNumberId, 'history', value))
+  const photo = (id: string, at: Date, caption?: string) => ({
+    from: OLD_CUSTOMER,
+    from_user_id: 'VE.123',
+    id,
+    timestamp: unix(at),
+    type: 'image',
+    image: { ...(caption ? { caption } : {}), mime_type: 'image/jpeg', sha256: 'abc', id: `media-${id}` },
+  })
+  const placeholder = (id: string, at: Date, from = OLD_CUSTOMER) => ({ from, id, timestamp: unix(at), type: 'media_placeholder', history_context: { status: 'read' } })
+  const historyChunk = (items: object[]) =>
+    webhook(coexChange(a.phoneNumberId, 'history', { history: [{ metadata: { phase: 0, chunk_order: 1, progress: 100 }, threads: [{ id: OLD_CUSTOMER, messages: items }] }] }))
+  const stored = async (id: string) => {
+    const conversation = await conversationOf(a.tenantId, OLD_CUSTOMER)
+    return (await messagesOf(a.tenantId, conversation!.id)).filter((m) => m.waMessageId === id)
+  }
+
+  it('the photo fills the placeholder the history left: its type, caption and file id, in its place', async () => {
+    // wamid.h.4 arrived above as a content-less placeholder.
+    await deliver(media({ messages: [photo('wamid.h.4', day(21), 'Así quedó la torta')] }))
+    expect(await stored('wamid.h.4')).toMatchObject([
+      { type: 'image', body: 'Así quedó la torta', waMediaId: 'media-wamid.h.4', direction: 'in', createdAt: day(21) },
+    ])
+  })
+
+  it('a photo that comes before its placeholder is stored, and the placeholder after it changes nothing', async () => {
+    await deliver(media({ messages: [photo('wamid.h.5', day(22))] }))
+    await deliver(historyChunk([placeholder('wamid.h.5', day(22))]))
+    expect(await stored('wamid.h.5')).toMatchObject([{ type: 'image', body: null, waMediaId: 'media-wamid.h.5', createdAt: day(22) }])
+  })
+
+  it('the owner\'s own file, from message_echoes, fills its placeholder as the owner\'s', async () => {
+    await deliver(historyChunk([placeholder('wamid.h.6', day(23), BUSINESS)]))
+    const pdf = { from: BUSINESS, to: OLD_CUSTOMER, id: 'wamid.h.6', timestamp: unix(day(23)), type: 'document', document: { caption: 'Menú', mime_type: 'application/pdf', sha256: 'x', id: 'media-pdf' } }
+    await deliver(media({ message_echoes: [pdf] }))
+    expect(await stored('wamid.h.6')).toMatchObject([{ type: 'document', body: 'Menú', waMediaId: 'media-pdf', direction: 'out', author: 'owner_app' }])
+  })
+
+  it('a file Meta sends twice, or something that is not a file, overwrites nothing', async () => {
+    await deliver(media({ messages: [photo('wamid.h.4', day(21), 'Otro texto')] }))
+    const text = { from: OLD_CUSTOMER, id: 'wamid.h.5', timestamp: unix(day(22)), type: 'text', text: { body: 'no soy una foto' } }
+    expect((await deliver(media({ messages: [text] }))).skipped).toEqual(['invalid_history_media'])
+    expect(await stored('wamid.h.4')).toMatchObject([{ body: 'Así quedó la torta' }])
+    expect(await stored('wamid.h.5')).toMatchObject([{ type: 'image' }])
+    expect(answered).not.toContain('wamid.h.4')
+  })
+
+  it('the database allows only that: a placeholder filled once with a file, nothing else, by anyone', async () => {
+    const [filled] = await stored('wamid.h.4')
+    const [text] = await stored('wamid.h.3')
+    await deliver(historyChunk([placeholder('wamid.h.7', day(24))]))
+    const [open] = await stored('wamid.h.7')
+    const update = (id: number, values: Partial<typeof messages.$inferInsert>) => dbError(t.db.update(messages).set(values).where(eq(messages.id, id)))
+    // Filled once: no second file, no new caption.
+    expect(await update(filled!.id, { waMediaId: 'media-other' })).toMatch(/already has its send result|never rewritten/)
+    expect(await update(filled!.id, { body: 'Otro texto' })).toMatch(/already has its send result|never rewritten/)
+    // An ordinary message never turns into a file.
+    expect(await update(text!.id, { type: 'image', waMediaId: 'media-x' })).toMatch(/already has its send result|never rewritten/)
+    // A placeholder only becomes a file: not text, and not with its author or time changed.
+    expect(await update(open!.id, { type: 'text', body: 'inventado' })).toMatch(/already has its send result|never rewritten/)
+    expect(await update(open!.id, { type: 'image', waMediaId: 'media-y', direction: 'out' })).toMatch(/already has its send result|never rewritten/)
+    expect(await update(open!.id, { type: 'image', waMediaId: 'media-y', createdAt: day(1) })).toMatch(/already has its send result|never rewritten/)
   })
 })
 
