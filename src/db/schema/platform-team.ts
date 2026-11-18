@@ -41,6 +41,9 @@ export const PLATFORM_TEAM_ACTIONS = [
   'admin.joined',
   'admin.code_reset',
   'admin.removed',
+  // Staff (mockup web-28): one device signed out, or all of a person's.
+  'admin.session_ended',
+  'admin.sessions_ended',
 ] as const
 export type PlatformTeamAction = (typeof PLATFORM_TEAM_ACTIONS)[number]
 
@@ -59,3 +62,50 @@ export const platformTeamEvents = pgTable(
   },
   (t) => [index('platform_team_events_created_idx').on(t.createdAt), check('platform_team_events_action_check', oneOf(t.action, PLATFORM_TEAM_ACTIONS))],
 )
+
+/** What the console does to companies, as the staff page lists it («Actividad en la consola», web-28). */
+export const CONSOLE_ACTIONS = [
+  'tenant.created',
+  'tenant.updated',
+  'tenant.draft_discarded',
+  'tenant.activated',
+  'tenant.suspended',
+  'tenant.cancelled',
+  'channel.connected',
+  'channel.replaced',
+  'channel.refreshed',
+  'tenant.admin_invited',
+  'tenant.owner_invited',
+  'tenant.invitation_renewed',
+  'tenant.invitation_revoked',
+  'business_type.created',
+  'business_type.reclassified',
+] as const
+export type ConsoleAction = (typeof CONSOLE_ACTIONS)[number]
+
+/**
+ * Who of our staff changed what in which company, and when: only the action, never what was typed
+ * (no tokens, no data). The company is named at the moment (a discarded draft no longer exists),
+ * so there is no foreign key to it. Rows are only ever added; only the server role reads them.
+ */
+export const platformActivity = pgTable(
+  'platform_activity',
+  {
+    id: serialIdColumn(),
+    actorUserId: uuid('actor_user_id')
+      .notNull()
+      .references(() => users.id),
+    action: text('action', { enum: CONSOLE_ACTIONS }).notNull(),
+    // Named company_*, not tenant_*: this is platform data about a company, never the company's own.
+    tenantId: uuid('company_id'),
+    tenantName: text('company_name'),
+    createdAt: createdAtColumn(),
+  },
+  (t) => [
+    index('platform_activity_created_idx').on(t.createdAt),
+    index('platform_activity_actor_idx').on(t.actorUserId, t.createdAt),
+    check('platform_activity_action_check', oneOf(t.action, CONSOLE_ACTIONS)),
+    check('platform_activity_company_name_check', sql`${t.tenantName} is null or length(${t.tenantName}) <= 200`),
+  ],
+)
+

@@ -13,6 +13,7 @@ import { webhookRoutes } from './modules/whatsapp/webhook.routes.ts'
 import type { BusinessTokenExchange } from './modules/whatsapp/meta-oauth.client.ts'
 import type { SignupLaunch } from './modules/channels/channel-signup.routes.ts'
 import type { AuthenticatorFactors } from './modules/platform/authenticator-factors.ts'
+import type { StaffAccounts } from './modules/platform/staff-accounts.ts'
 
 export interface AppDependencies {
   db: Database
@@ -36,6 +37,8 @@ export interface AppDependencies {
   signup?: { exchange: BusinessTokenExchange; launch: SignupLaunch }
   /** Our console admins' authenticator codes (Supabase Auth); defaults to reading its schema directly. */
   authenticatorFactors?: AuthenticatorFactors
+  /** Our staff's last access and devices (Supabase Auth); defaults to reading its schema directly. */
+  staffAccounts?: StaffAccounts
   /** Where the chat's files are kept (Cloudinary, Supabase Storage); unset: only on the phone. */
   mediaStores?: MediaStores
 }
@@ -95,6 +98,7 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     agent: deps.agent ?? { modelReady: false, monthlyCap: 1000 },
     ...(deps.signup ? { signup: deps.signup } : {}),
     ...(deps.authenticatorFactors ? { authenticatorFactors: deps.authenticatorFactors } : {}),
+    ...(deps.staffAccounts ? { staffAccounts: deps.staffAccounts } : {}),
     mediaStores: deps.mediaStores ?? { cloudinary: null, supabase: null },
   })
 

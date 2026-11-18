@@ -27,6 +27,7 @@ import { usageRoutes } from '../modules/usage/usage.routes.ts'
 import { platformRoutes } from '../modules/platform/platform.routes.ts'
 import { type AuthenticatorFactors, SupabaseAuthenticatorFactors } from '../modules/platform/authenticator-factors.ts'
 import { PlatformTeamService } from '../modules/platform/platform-team-service.ts'
+import { type StaffAccounts, SupabaseStaffAccounts } from '../modules/platform/staff-accounts.ts'
 import { platformInvitationRoutes, publicPlatformInvitationRoutes } from '../modules/platform/platform-team.routes.ts'
 import { TenantAdminService } from '../modules/platform/tenant-admin-service.ts'
 import { ChannelAdminService } from '../modules/platform/channel-admin-service.ts'
@@ -85,6 +86,7 @@ export interface ApiOptions {
   agent: { modelReady: boolean; monthlyCap: number }
   signup?: { exchange: BusinessTokenExchange; launch: SignupLaunch }
   authenticatorFactors?: AuthenticatorFactors
+  staffAccounts?: StaffAccounts
   mediaStores: MediaStores
 }
 
@@ -104,7 +106,7 @@ export const publicApiRoutes: FastifyPluginAsync<{ db: Database }> = async (app,
  * The panel's API (/api). Everything in here requires a verified Supabase session;
  * company data is only reached through inCompany() (membership + withTenant).
  */
-export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent, signup, authenticatorFactors, mediaStores }) => {
+export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent, signup, authenticatorFactors, staffAccounts, mediaStores }) => {
   installErrorHandler(app, toApiError)
   app.decorateRequest('identity', null)
   app.addHook('onRequest', authenticate(verifier))
@@ -119,7 +121,7 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   const businessTypes = new BusinessTypeService(db)
   await app.register(businessTypeRoutes, { types: businessTypes })
   const channelAdmin = new ChannelAdminService(db, credentials, wabaDirectory, tenantAdmin)
-  const platformTeam = new PlatformTeamService(db, authenticatorFactors ?? new SupabaseAuthenticatorFactors(db))
+  const platformTeam = new PlatformTeamService(db, authenticatorFactors ?? new SupabaseAuthenticatorFactors(db), staffAccounts ?? new SupabaseStaffAccounts(db))
   await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage, types: businessTypes, channels: channelAdmin, team: platformTeam, alerts: new PlatformAlertService(db, usage, { agentCap: agent.monthlyCap, webhookMaxAttempts: WEBHOOK_MAX_ATTEMPTS }), agentCap: agent.monthlyCap })
   await app.register(platformInvitationRoutes, { team: platformTeam })
   await app.register(usageRoutes, { prefix: COMPANY, db, usage })

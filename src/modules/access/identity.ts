@@ -5,6 +5,8 @@ export interface VerifiedIdentity {
   readonly email: string
   /** aal2 = signed in with the second factor too. */
   readonly secondFactor: boolean
+  /** Supabase Auth session of this token, when it says (staff page: «esta sesión»). */
+  readonly sessionId?: string
 }
 
 export interface AccessTokenVerifier {

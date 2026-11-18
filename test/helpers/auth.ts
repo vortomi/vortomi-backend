@@ -22,11 +22,13 @@ export interface TokenOptions {
   audience?: string
   role?: string
   expiresIn?: string
+  /** Supabase Auth session id (claim session_id). */
+  sessionId?: string
 }
 
 /** A Supabase-shaped access token for `userId`, signed with the test project's key. */
 export async function tokenFor(userId: string, options: TokenOptions = {}): Promise<string> {
-  return new SignJWT({ email: options.email ?? `${userId.slice(0, 8)}@example.com`, role: options.role ?? 'authenticated', aal: options.aal ?? 'aal1' })
+  return new SignJWT({ email: options.email ?? `${userId.slice(0, 8)}@example.com`, role: options.role ?? 'authenticated', aal: options.aal ?? 'aal1', ...(options.sessionId ? { session_id: options.sessionId } : {}) })
     .setProtectedHeader({ alg: 'ES256', kid: KEY_ID })
     .setSubject(userId)
     .setIssuer(options.issuer ?? ISSUER)

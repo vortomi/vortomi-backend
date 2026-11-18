@@ -17,7 +17,7 @@ import { UnknownBusinessTypeError } from '../modules/setup/setup-service.ts'
 import { NoChannelError, NotADraftError, NotDiscardableError, TenantNotFoundError, WabaTakenError } from '../modules/platform/tenant-admin-service.ts'
 import { TokenRequiredError } from '../modules/platform/channel-admin-service.ts'
 import { MetaRefusedError, NumberNotInAccountError, NumberTakenError } from '../modules/platform/channel-errors.ts'
-import { AlreadyPlatformAdminError, NotOnYourselfError, PlatformAdminNotFoundError } from '../modules/platform/platform-team-service.ts'
+import { AlreadyPlatformAdminError, NotOnYourselfError, PlatformAdminNotFoundError, StaffSessionNotFoundError } from '../modules/platform/platform-team-service.ts'
 import { ChannelNotFoundError } from '../modules/team/channel-list.ts'
 import { SignupCodeRejectedError, SignupGrantMismatchError, SignupUnavailableError } from '../modules/channels/channel-signup-service.ts'
 import {
@@ -86,6 +86,7 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [SelfDisableError, 409, 'cannot_disable_self'],
   [ConversationNotFoundError, 404, 'conversation_not_found'],
   [MediaNotFoundError, 404, 'media_not_found'],
+  [StaffSessionNotFoundError, 404, 'session_not_found'],
   [ContactNotFoundError, 404, 'contact_not_found'],
   [TagNotFoundError, 404, 'tag_not_found'],
   [QuickReplyNotFoundError, 404, 'quick_reply_not_found'],

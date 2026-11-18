@@ -23,6 +23,7 @@ import { BcvReadError, type BcvSource } from '../../src/modules/exchange-rates/b
 import { InboxFeed } from '../../src/modules/realtime/inbox-feed.ts'
 import { testVerifier } from './auth.ts'
 import type { AuthenticatorFactors } from '../../src/modules/platform/authenticator-factors.ts'
+import type { StaffAccount, StaffAccounts, StaffSession } from '../../src/modules/platform/staff-accounts.ts'
 import { APP_SECRET, VERIFY_TOKEN } from './meta-payloads.ts'
 
 /** Ids never repeat across senders of a test file: Meta's ids are unique, and messages keep them. */
@@ -128,6 +129,32 @@ export class FakeAuthenticatorFactors implements AuthenticatorFactors {
   }
 }
 
+/** Stands in for Supabase Auth's accounts and sessions of our staff. */
+export class FakeStaffAccounts implements StaffAccounts {
+  readonly accountsById = new Map<string, StaffAccount>()
+  sessionList: StaffSession[] = []
+
+  accounts(userIds: string[]): Promise<Map<string, StaffAccount>> {
+    return Promise.resolve(new Map([...this.accountsById].filter(([id]) => userIds.includes(id))))
+  }
+
+  sessions(userIds: string[]): Promise<StaffSession[]> {
+    return Promise.resolve(this.sessionList.filter((s) => userIds.includes(s.userId)))
+  }
+
+  endSession(userId: string, sessionId: string): Promise<boolean> {
+    const before = this.sessionList.length
+    this.sessionList = this.sessionList.filter((s) => !(s.id === sessionId && s.userId === userId))
+    return Promise.resolve(this.sessionList.length < before)
+  }
+
+  endSessions(userId: string, keep?: string): Promise<number> {
+    const before = this.sessionList.length
+    this.sessionList = this.sessionList.filter((s) => s.userId !== userId || s.id === keep)
+    return Promise.resolve(before - this.sessionList.length)
+  }
+}
+
 /** Stands in for bcv.org.ve: answers `next`, a rate or the reason it could not be read. */
 export class FakeBcvSource implements BcvSource {
   next: BcvRate | string = 'la página del BCV no respondió.'
@@ -160,6 +187,8 @@ export function buildTestApp(db: Database, overrides: Partial<AppDependencies> =
       bcv: new BcvRateService(db, new FakeBcvSource(), silentLog),
       // PGlite has no Supabase auth schema: the codes live in memory here.
       authenticatorFactors: new FakeAuthenticatorFactors(),
+      // PGlite has no auth.sessions either.
+      staffAccounts: new FakeStaffAccounts(),
       ...overrides,
     },
     false,

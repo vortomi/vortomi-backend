@@ -12,6 +12,7 @@ export interface PlatformTeamRoutesOptions {
 const tokenParams = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
 const invitationParams = z.object({ invitationId: z.uuid() })
 const adminParams = z.object({ userId: z.uuid() })
+const sessionParams = adminParams.extend({ sessionId: z.uuid() })
 // The person may correct the name the inviter typed.
 const acceptBody = z.object({ name: z.string().trim().min(1).max(80).optional() }).default({})
 
@@ -20,7 +21,7 @@ const acceptBody = z.object({ name: z.string().trim().min(1).max(80).optional() 
  * guard (super admin with the second factor) runs first on every one of these.
  */
 export const platformTeamRoutes: FastifyPluginCallback<PlatformTeamRoutesOptions> = (app, { team }, done) => {
-  app.get('/team', (request) => team.overview(identityOf(request).userId))
+  app.get('/team', (request) => team.overview(identityOf(request)))
 
   app.post('/team/invitations', async (request, reply) =>
     reply.code(201).send(await team.invite(identityOf(request).userId, parseInput(platformInvitationInput, request.body))),
@@ -37,6 +38,14 @@ export const platformTeamRoutes: FastifyPluginCallback<PlatformTeamRoutesOptions
   })
   app.delete('/team/admins/:userId', async (request, reply) => {
     await team.remove(identityOf(request).userId, parseInput(adminParams, request.params).userId)
+    return reply.code(204).send()
+  })
+
+  // Staff (mockup web-28): sign a person out of every device, or out of one.
+  app.delete('/team/admins/:userId/sessions', (request) => team.endSessions(identityOf(request).userId, parseInput(adminParams, request.params).userId))
+  app.delete('/team/admins/:userId/sessions/:sessionId', async (request, reply) => {
+    const { userId, sessionId } = parseInput(sessionParams, request.params)
+    await team.endSession(identityOf(request), userId, sessionId)
     return reply.code(204).send()
   })
   done()

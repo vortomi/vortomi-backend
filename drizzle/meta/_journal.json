@@ -491,6 +491,13 @@
       "when": 1795020517563,
       "tag": "0069_handoff_media_received",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1795021891877,
+      "tag": "0070_staff_activity",
+      "breakpoints": true
     }
   ]
 }

@@ -16,6 +16,7 @@ import { platformTeamRoutes } from './platform-team.routes.ts'
 import type { PlatformAlertService } from './platform-alert-service.ts'
 import { TenantInsightService } from './tenant-insights.ts'
 import { tenantInsightRoutes } from './tenant-insights.routes.ts'
+import { trackConsoleActivity } from './console-activity.ts'
 
 export interface PlatformRoutesOptions {
   directory: AccessDirectory
@@ -47,6 +48,8 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
     if (account?.platformRole !== 'super_admin') throw forbidden('platform_admin_required')
     if (!identity.secondFactor) throw forbidden('second_factor_required')
   })
+  // «Actividad en la consola» (mockup web-28): who changed what in which company.
+  trackConsoleActivity(app, db, app.log)
 
   const id = (params: unknown) => parseInput(tenantParams, params).tenantId
 

@@ -14,6 +14,8 @@ const claimsSchema = z.object({
   email: z.email().transform((email) => email.toLowerCase()),
   role: z.literal('authenticated'),
   aal: z.enum(['aal1', 'aal2']),
+  // The Supabase Auth session the token belongs to: the staff page marks «esta sesión» with it.
+  session_id: z.uuid().optional(),
 })
 
 /**
@@ -51,6 +53,11 @@ export class SupabaseTokenVerifier implements AccessTokenVerifier {
     }
     const claims = claimsSchema.safeParse(payload)
     if (!claims.success) throw new InvalidAccessTokenError('unexpected claims')
-    return { userId: claims.data.sub, email: claims.data.email, secondFactor: claims.data.aal === 'aal2' }
+    return {
+      userId: claims.data.sub,
+      email: claims.data.email,
+      secondFactor: claims.data.aal === 'aal2',
+      ...(claims.data.session_id ? { sessionId: claims.data.session_id } : {}),
+    }
   }
 }

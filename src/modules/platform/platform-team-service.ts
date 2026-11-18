@@ -1,11 +1,13 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 import { z } from 'zod'
 import type { Database, Executor } from '../../db/client.ts'
-import { type PlatformTeamAction, platformInvitations, platformTeamEvents, users } from '../../db/schema/index.ts'
+import { type PlatformTeamAction, platformActivity, platformInvitations, platformTeamEvents, users } from '../../db/schema/index.ts'
 import type { VerifiedIdentity } from '../access/identity.ts'
 import { InvitationEmailMismatchError, InvitationExpiredError, InvitationNotFoundError } from '../team/invitation-service.ts'
 import { hashOf, invitationExpiry, newToken } from '../team/invitation-token.ts'
 import type { AuthenticatorFactors } from './authenticator-factors.ts'
+import { type StaffAccount, type StaffAccounts, type StaffSession, browserOf, maskIp, systemOf } from './staff-accounts.ts'
 
 /** That person already enters the console. */
 export class AlreadyPlatformAdminError extends Error {
@@ -41,6 +43,16 @@ const open = and(isNull(platformInvitations.acceptedAt), isNull(platformInvitati
 const invitationColumns = { id: platformInvitations.id, name: platformInvitations.name, email: platformInvitations.email, expiresAt: platformInvitations.expiresAt }
 /** How much of the team's history the console shows. */
 const HISTORY = 30
+/** How much of the console's activity the staff page shows. */
+const ACTIVITY = 60
+
+/** That session is not one of that person's (or already ended). */
+export class StaffSessionNotFoundError extends Error {
+  constructor() {
+    super('No such session')
+    this.name = 'StaffSessionNotFoundError'
+  }
+}
 
 /**
  * Who enters our console (mockup web-22): the platform admins, their invitations, their
@@ -51,29 +63,112 @@ export class PlatformTeamService {
   constructor(
     private readonly db: Database,
     private readonly factors: AuthenticatorFactors,
+    // Last access, code dates and devices (Supabase Auth); without it the page shows only the list.
+    private readonly staff: StaffAccounts | null = null,
   ) {}
 
-  async overview(viewerId: string) {
-    const [admins, invitations, events] = await Promise.all([
+  /**
+   * The staff page (mockup web-28): who has access and how safely (code, last access, devices),
+   * open invitations, the team's history and the console's activity on companies. IPs leave the
+   * server with their last part hidden; tokens and typed data are never kept, so never shown.
+   */
+  async overview(viewer: { userId: string; sessionId?: string }) {
+    const inviter = alias(users, 'inviter')
+    const [admins, invitations, events, activity] = await Promise.all([
       this.db
-        .select({ userId: users.id, name: users.name, email: users.email, createdAt: users.createdAt })
+        .select({
+          userId: users.id,
+          name: users.name,
+          email: users.email,
+          createdAt: users.createdAt,
+          // Who invited them (none for the first admins, made by hand).
+          invitedBy: sql<string | null>`(select i.name from ${platformInvitations} p join ${users} i on i.id = p.invited_by
+            where p.accepted_by = ${users}.id order by p.accepted_at desc limit 1)`,
+        })
         .from(users)
         .where(eq(users.platformRole, 'super_admin'))
         .orderBy(asc(users.name)),
-      this.db.select(invitationColumns).from(platformInvitations).where(open).orderBy(asc(platformInvitations.createdAt)),
       this.db
-        .select({ action: platformTeamEvents.action, actorName: users.name, subjectEmail: platformTeamEvents.subjectEmail, createdAt: platformTeamEvents.createdAt })
+        .select({ ...invitationColumns, createdAt: platformInvitations.createdAt, invitedBy: inviter.name })
+        .from(platformInvitations)
+        .innerJoin(inviter, eq(inviter.id, platformInvitations.invitedBy))
+        .where(open)
+        .orderBy(asc(platformInvitations.createdAt)),
+      this.db
+        .select({
+          action: platformTeamEvents.action,
+          actorName: users.name,
+          subjectEmail: platformTeamEvents.subjectEmail,
+          subjectName: sql<string | null>`(select s.name from ${users} s where s.email = ${platformTeamEvents}.subject_email limit 1)`,
+          createdAt: platformTeamEvents.createdAt,
+        })
         .from(platformTeamEvents)
         .innerJoin(users, eq(users.id, platformTeamEvents.actorUserId))
         .orderBy(desc(platformTeamEvents.createdAt), desc(platformTeamEvents.id))
         .limit(HISTORY),
+      this.db
+        .select({ action: platformActivity.action, actorUserId: platformActivity.actorUserId, actorName: users.name, tenantId: platformActivity.tenantId, tenantName: platformActivity.tenantName, createdAt: platformActivity.createdAt })
+        .from(platformActivity)
+        .innerJoin(users, eq(users.id, platformActivity.actorUserId))
+        .orderBy(desc(platformActivity.createdAt), desc(platformActivity.id))
+        .limit(ACTIVITY),
     ])
-    const withCode = await this.factors.withCode(admins.map((a) => a.userId))
+    const ids = admins.map((a) => a.userId)
+    const [withCode, accounts, sessions] = await Promise.all([
+      this.factors.withCode(ids),
+      this.staff?.accounts(ids) ?? Promise.resolve(new Map<string, StaffAccount>()),
+      this.staff?.sessions(ids) ?? Promise.resolve<StaffSession[]>([]),
+    ])
+    const nameOf = new Map(admins.map((a) => [a.userId, a.name]))
     return {
-      admins: admins.map((a) => ({ ...a, hasCode: withCode.has(a.userId), isYou: a.userId === viewerId })),
+      admins: admins.map((a) => {
+        const account = accounts.get(a.userId)
+        return {
+          ...a,
+          hasCode: withCode.has(a.userId),
+          isYou: a.userId === viewer.userId,
+          lastSignInAt: account?.lastSignInAt ?? null,
+          codeSince: account?.codeSince ?? null,
+          codeLastUsedAt: account?.codeLastUsedAt ?? null,
+          sessionCount: sessions.filter((s) => s.userId === a.userId).length,
+          lastActionAt: activity.find((entry) => entry.actorUserId === a.userId)?.createdAt ?? null,
+        }
+      }),
       invitations,
+      sessions: sessions.map((s) => {
+        const system = systemOf(s.userAgent)
+        return {
+          id: s.id,
+          userId: s.userId,
+          name: nameOf.get(s.userId) ?? '',
+          browser: browserOf(s.userAgent),
+          system: system.name,
+          mobile: system.mobile,
+          ip: maskIp(s.ip),
+          createdAt: s.createdAt,
+          lastActiveAt: s.lastActiveAt,
+          current: s.id === viewer.sessionId,
+        }
+      }),
       events,
+      activity,
     }
+  }
+
+  /** One device of a staff member signed out (a lost laptop). Never the caller's own current session. */
+  async endSession(actor: { userId: string; sessionId?: string }, userId: string, sessionId: string): Promise<void> {
+    if (sessionId === actor.sessionId) throw new NotOnYourselfError()
+    const admin = await this.admin(userId)
+    if (!(await this.staff?.endSession(userId, sessionId))) throw new StaffSessionNotFoundError()
+    await this.record(this.db, actor.userId, 'admin.session_ended', admin.email)
+  }
+
+  /** Every device of another staff member signed out (a lost phone). Their access and code stay. */
+  async endSessions(actorId: string, userId: string): Promise<{ ended: number }> {
+    const admin = await this.otherAdmin(actorId, userId)
+    const ended = (await this.staff?.endSessions(userId)) ?? 0
+    await this.record(this.db, actorId, 'admin.sessions_ended', admin.email)
+    return { ended }
   }
 
   /** The link comes back once; only its hash is kept. */
@@ -176,6 +271,10 @@ export class PlatformTeamService {
   /** Never on oneself: the one acting stays, so the console always keeps at least one admin. */
   private async otherAdmin(actorId: string, userId: string) {
     if (actorId === userId) throw new NotOnYourselfError()
+    return this.admin(userId)
+  }
+
+  private async admin(userId: string) {
     const [admin] = await this.db.select({ email: users.email }).from(users).where(and(eq(users.id, userId), eq(users.platformRole, 'super_admin')))
     if (!admin) throw new PlatformAdminNotFoundError()
     return admin
