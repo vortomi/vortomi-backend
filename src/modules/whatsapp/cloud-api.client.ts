@@ -103,6 +103,20 @@ export interface WabaDirectory {
   requestAppDataSync(phoneNumberId: string, accessToken: string, kind: AppDataSync): Promise<void>
 }
 
+/** A Meta app, by its public id. */
+export interface MetaApp {
+  id: string
+  name: string
+}
+
+/** Port for watching who receives a number's messages (mockup web-31). */
+export interface SubscriptionReader {
+  /** The app the token was issued for: the one its calls act as. */
+  tokenApp(accessToken: string): Promise<MetaApp>
+  /** Every app Meta delivers the account's webhooks to (ours and anyone else's). */
+  subscribedApps(wabaId: string, accessToken: string): Promise<MetaApp[]>
+}
+
 /** Port for managing templates in a WhatsApp Business Account. */
 export interface TemplateRegistry {
   submitTemplate(submission: TemplateSubmission): Promise<{ metaTemplateId: string; status: string }>
@@ -144,9 +158,15 @@ const numbersResponseSchema = z.object({
   ),
 })
 
-/** The only Graph paths this client calls. Ids are digits only: nothing can redirect a call elsewhere. */
+const appSchema = z.object({ id: z.string().regex(/^\d+$/), name: z.string().default('') })
+const subscribedAppsSchema = z.object({ data: z.array(z.object({ whatsapp_business_api_data: appSchema })) })
+
+/**
+ * The only Graph paths this client calls. Ids are digits only: nothing can redirect a call elsewhere.
+ * «app» is the app the token itself belongs to.
+ */
 const ALLOWED_PATHS =
-  /^\d+(\?fields=display_phone_number,verified_name,is_on_biz_app|\?fields=business_verification_status|\/(messages|media|message_templates|subscribed_apps|register|smb_app_data|phone_numbers\?fields=id,display_phone_number,verified_name,name_status))?$/
+  /^(app\?fields=id,name|\d+(\?fields=display_phone_number,verified_name,is_on_biz_app|\?fields=business_verification_status|\/(messages|media|message_templates|subscribed_apps|register|smb_app_data|phone_numbers\?fields=id,display_phone_number,verified_name,name_status))?)$/
 
 /** Where Meta serves media files from: nothing else is ever fetched with the number's token. */
 const MEDIA_HOSTS = /(^|\.)(fbsbx\.com|facebook\.com|whatsapp\.net|fbcdn\.net)$/
@@ -163,7 +183,7 @@ const REQUEST_TIMEOUT_MS = 15_000
  * Thin transport over the Graph API (reused from project-1). Multi-company: the
  * number or account and its token come with every call. No business rules here.
  */
-export class CloudApiClient implements WhatsAppSender, TypingIndicator, MediaDownloader, TemplateRegistry, WabaDirectory {
+export class CloudApiClient implements WhatsAppSender, TypingIndicator, MediaDownloader, TemplateRegistry, WabaDirectory, SubscriptionReader {
   constructor(
     private readonly apiVersion: string,
     private readonly fetchFn: typeof fetch = fetch,
@@ -247,6 +267,18 @@ export class CloudApiClient implements WhatsAppSender, TypingIndicator, MediaDow
 
   async subscribeApp(wabaId: string, accessToken: string): Promise<void> {
     await this.request('POST', `${wabaId}/subscribed_apps`, accessToken, {})
+  }
+
+  async tokenApp(accessToken: string): Promise<MetaApp> {
+    const parsed = appSchema.safeParse(await this.request('GET', 'app?fields=id,name', accessToken))
+    if (!parsed.success) throw new WhatsAppApiError('Graph API returned no app', null, null)
+    return parsed.data
+  }
+
+  async subscribedApps(wabaId: string, accessToken: string): Promise<MetaApp[]> {
+    const parsed = subscribedAppsSchema.safeParse(await this.request('GET', `${wabaId}/subscribed_apps`, accessToken))
+    if (!parsed.success) throw new WhatsAppApiError('Cloud API returned no subscribed apps', null, null)
+    return parsed.data.data.map((entry) => entry.whatsapp_business_api_data)
   }
 
   async numberDetails(phoneNumberId: string, accessToken: string): Promise<NumberDetails> {

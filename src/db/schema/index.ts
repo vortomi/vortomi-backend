@@ -1,4 +1,5 @@
 export * from './access.ts'
+export * from './channel-app-checks.ts'
 export * from './chat-media.ts'
 export * from './agent.ts'
 export * from './annotations.ts'

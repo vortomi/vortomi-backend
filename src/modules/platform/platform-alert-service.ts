@@ -1,6 +1,6 @@
 import { and, count, eq, gt, gte, isNotNull, isNull, like, max, min, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client.ts'
-import { agentSettings, agentUsage, bcvStatus, channelAccounts, conversations, tenantSettings, tenants, webhookEvents } from '../../db/schema/index.ts'
+import { agentSettings, agentUsage, bcvStatus, channelAccounts, channelAppChecks, conversations, tenantSettings, tenants, webhookEvents } from '../../db/schema/index.ts'
 import { dayIn } from '../../shared/time-zone.ts'
 import type { UsageService } from '../usage/usage-service.ts'
 import { ALERT_LIMITS, type AlertFacts, type PlatformAlert, platformAlerts } from './platform-alert-rules.ts'
@@ -13,11 +13,13 @@ const WEBHOOK_WINDOW_MS = 2 * DAY_MS
 const FAILED_WINDOW_MS = 7 * DAY_MS
 /** The number's usual traffic is measured over this many days before the silence. */
 const BASELINE_DAYS = 30
+/** The apps of a number read longer ago than this (the watch reads every 15 min) are not vouched for. */
+const APPS_FRESH_MS = 60 * 60_000
 
 export interface PlatformAlertReport {
   checkedAt: string
   /** What was looked at, so «todo en orden» says it. */
-  checked: { companies: number; numbers: number; connected: number }
+  checked: { companies: number; numbers: number; connected: number; appsUnread: number }
   alerts: PlatformAlert[]
 }
 
@@ -37,9 +39,7 @@ export class PlatformAlertService {
     const now = this.options.now?.() ?? new Date()
     const [companies, channels, webhooksFailed, unroutable, bcv, agent, catalog, usage, inbound] = await Promise.all([
       this.db.select({ id: tenants.id, name: tenants.name, status: tenants.status, createdAt: tenants.createdAt }).from(tenants),
-      this.db
-        .select({ id: channelAccounts.id, tenantId: channelAccounts.tenantId, label: channelAccounts.label, status: channelAccounts.status, statusReason: channelAccounts.statusReason, statusChangedAt: channelAccounts.statusChangedAt, tokenExpiresAt: channelAccounts.tokenExpiresAt })
-        .from(channelAccounts),
+      this.channels(),
       this.webhooksFailed(now),
       this.unroutable(now),
       this.bcv(),
@@ -65,9 +65,18 @@ export class PlatformAlertService {
     const own = channels.filter((c) => live.has(c.tenantId))
     return {
       checkedAt: now.toISOString(),
-      checked: { companies: live.size, numbers: own.length, connected: own.filter((c) => c.status === 'connected').length },
+      checked: { companies: live.size, numbers: own.length, connected: own.filter((c) => c.status === 'connected').length, appsUnread: own.filter((c) => !c.appsCheckedAt || now.getTime() - c.appsCheckedAt.getTime() > APPS_FRESH_MS).length },
       alerts: platformAlerts(facts),
     }
+  }
+
+  /** Each number with the apps not ours that Meta delivers its messages to (mockup web-31). */
+  private async channels(): Promise<(AlertFacts['channels'][number] & { appsCheckedAt: Date | null })[]> {
+    const rows = await this.db
+      .select({ id: channelAccounts.id, tenantId: channelAccounts.tenantId, label: channelAccounts.label, status: channelAccounts.status, statusReason: channelAccounts.statusReason, statusChangedAt: channelAccounts.statusChangedAt, tokenExpiresAt: channelAccounts.tokenExpiresAt, wabaId: channelAccounts.wabaId, apps: channelAppChecks.apps, appsCheckedAt: channelAppChecks.checkedAt })
+      .from(channelAccounts)
+      .leftJoin(channelAppChecks, eq(channelAppChecks.channelAccountId, channelAccounts.id))
+    return rows.map(({ apps, ...channel }) => ({ ...channel, foreignApps: (apps ?? []).filter((app) => !app.ours).map(({ id, name, firstSeenAt }) => ({ id, name, firstSeenAt })) }))
   }
 
   /** Webhooks every attempt failed on: customer messages in them may be missing from the inbox. */

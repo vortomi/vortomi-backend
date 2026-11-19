@@ -33,11 +33,14 @@ import { parseWebhookPayload } from './modules/whatsapp/webhook-parser.ts'
 import { KeyedLanes } from './shared/keyed-lanes.ts'
 import { CloudinaryStore, parseCloudinaryUrl } from './modules/chat-media/cloudinary-store.ts'
 import { MediaArchiver, type MediaStores } from './modules/chat-media/media-archiver.ts'
+import { AppSubscriptionWatch } from './modules/platform/app-subscription-watch.ts'
 import { SupabaseStore } from './modules/chat-media/supabase-store.ts'
 import { SupabaseAccountPasswords } from './modules/password-reset/account-passwords.ts'
 import type { WhatsAppEvent } from './modules/whatsapp/events.ts'
 
 const SWEEP_INTERVAL_MS = 60_000
+/** How often every number's apps are read from Meta (mockup web-31). */
+const APP_WATCH_INTERVAL_MS = 15 * 60_000
 const WEBHOOK_KEEP_MS = 30 * 24 * 60 * 60_000
 /** The agent waits this long after a customer message: several quick messages get one answer. */
 const AGENT_DEBOUNCE_MS = 4_000
@@ -84,6 +87,11 @@ async function main(): Promise<void> {
   // Its logger is the app's: bound once the app exists (only used after listen()).
   const bcvLog = { warn: (message: string) => app.log.warn(message), error: (obj: object, message: string) => app.log.error(obj, message) }
   const bcv = new BcvRateService(db, new HttpBcvSource(bcvLog), bcvLog)
+  // Which apps receive each number's messages: ours are the stored tokens' apps and the signup app.
+  const appWatch = new AppSubscriptionWatch(db, credentials, cloudApi, {
+    ourAppIds: signup ? [signup.appId] : [],
+    log: { warn: (obj: object, message: string) => app.log.warn(obj, message), error: (obj: object, message: string) => app.log.error(obj, message) },
+  })
   // Companies whose catalog lives in their own system: read live, at most once per 90 s each.
   const catalogs = new CatalogSources(
     db,
@@ -113,6 +121,7 @@ async function main(): Promise<void> {
       bcv,
       catalogs,
       mediaStores,
+      appWatch,
       // Password links (mockup web-30): Supabase Auth admin API, with the same secret key as Storage.
       accountPasswords: env.SUPABASE_SECRET_KEY ? new SupabaseAccountPasswords(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY) : null,
       agent: { modelReady: Boolean(env.GEMINI_API_KEY), monthlyCap: env.AGENT_MONTHLY_REPLY_CAP },
@@ -197,6 +206,9 @@ async function main(): Promise<void> {
   // One LISTEN connection for the whole server; the panels' streams hang from it.
   const stopFeed = await feed.start(database.listen)
   const stopBcv = bcv.start(env.BCV_CHECK_INTERVAL_MS)
+  // A foreign app on a number is found within minutes of the start and of every change.
+  appWatch.run()
+  const appWatchTimer = setInterval(() => appWatch.run(), APP_WATCH_INTERVAL_MS)
 
   let shuttingDown = false
   const shutdown = async (signal: string) => {
@@ -205,11 +217,13 @@ async function main(): Promise<void> {
     app.log.info({ signal }, 'Shutting down')
     clearInterval(sweepTimer)
     clearInterval(archiveTimer)
+    clearInterval(appWatchTimer)
     await stopFeed()
     await stopBcv()
     await app.close()
     await queue.idle()
     await archiver.idle()
+    await appWatch.idle()
     // Answers on their way finish before the process ends (Railway gives the old server time to drain).
     await replies.idle(SHUTDOWN_ANSWERS_MS)
     await salesAgent.drain(SHUTDOWN_ANSWERS_MS)

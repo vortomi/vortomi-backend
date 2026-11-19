@@ -505,6 +505,13 @@
       "when": 1795026324737,
       "tag": "0071_password_resets",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1795099048101,
+      "tag": "0072_app_subscription_checks",
+      "breakpoints": true
     }
   ]
 }

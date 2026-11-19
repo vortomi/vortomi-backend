@@ -13,6 +13,7 @@ import { webhookRoutes } from './modules/whatsapp/webhook.routes.ts'
 import type { BusinessTokenExchange } from './modules/whatsapp/meta-oauth.client.ts'
 import type { SignupLaunch } from './modules/channels/channel-signup.routes.ts'
 import type { AuthenticatorFactors } from './modules/platform/authenticator-factors.ts'
+import { type AppSubscriptionWatch, watchingSubscriptions } from './modules/platform/app-subscription-watch.ts'
 import { type StaffAccounts, SupabaseStaffAccounts } from './modules/platform/staff-accounts.ts'
 import type { AccountPasswords } from './modules/password-reset/account-passwords.ts'
 import { PasswordResetLinks } from './modules/password-reset/password-reset-links.ts'
@@ -43,6 +44,8 @@ export interface AppDependencies {
   staffAccounts?: StaffAccounts
   /** Sets passwords in Supabase Auth (secret key); without it password links answer reset_unavailable. */
   accountPasswords?: AccountPasswords | null
+  /** Reads which apps receive each number's messages; unset: nothing watches them (tests). */
+  appWatch?: Pick<AppSubscriptionWatch, 'wake'>
   /** Where the chat's files are kept (Cloudinary, Supabase Storage); unset: only on the phone. */
   mediaStores?: MediaStores
 }
@@ -98,7 +101,8 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     credentials: deps.credentials,
     sender: deps.sender,
     templateRegistry: deps.templateRegistry,
-    wabaDirectory: deps.wabaDirectory,
+    // Each subscription of our app to an account has the numbers' apps read again (mockup web-31).
+    wabaDirectory: deps.appWatch ? watchingSubscriptions(deps.wabaDirectory, deps.appWatch) : deps.wabaDirectory,
     feed: deps.feed,
     bcv: deps.bcv,
     ...(deps.catalogs ? { catalogs: deps.catalogs } : {}),

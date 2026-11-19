@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { Database } from '../../db/client.ts'
 import { TENANT_PLANS } from '../../db/schema/enums.ts'
 import { timeZone } from '../../shared/time-zone.ts'
-import { channelAccounts, channelCredentials, invitations, memberships, messages, tenants, users } from '../../db/schema/index.ts'
+import { channelAccounts, channelAppChecks, channelCredentials, invitations, memberships, messages, tenants, users } from '../../db/schema/index.ts'
 import type { ChannelCredentials } from '../channels/channel-credentials.ts'
 import type { InvitationService } from '../team/invitation-service.ts'
 import type { WabaDirectory } from '../whatsapp/cloud-api.client.ts'
@@ -152,8 +152,13 @@ export class TenantAdminService {
           tokenExpiresAt: channelAccounts.tokenExpiresAt,
           // Whether it can send: the token itself never leaves the server.
           hasToken: sql<boolean>`exists (select 1 from ${channelCredentials} cc where cc.channel_account_id = ${channelAccounts.id})`,
+          // Who else receives its messages (mockup web-31): null until the watch first reads it.
+          apps: channelAppChecks.apps,
+          appsCheckedAt: channelAppChecks.checkedAt,
+          appsFailedAt: channelAppChecks.failedAt,
         })
         .from(channelAccounts)
+        .leftJoin(channelAppChecks, eq(channelAppChecks.channelAccountId, channelAccounts.id))
         .where(eq(channelAccounts.tenantId, tenantId))
         .orderBy(asc(channelAccounts.label)),
       this.db

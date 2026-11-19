@@ -8,6 +8,7 @@ export type AlertKind =
   | 'unroutable_number'
   | 'bcv_unread'
   | 'channel_disconnected'
+  | 'foreign_app'
   | 'access_expired'
   | 'access_expiring'
   | 'number_silent'
@@ -46,7 +47,7 @@ export const ALERT_LIMITS = {
 export interface AlertFacts {
   now: Date
   tenants: { id: string; name: string; status: string; createdAt: Date }[]
-  channels: { id: string; tenantId: string; label: string; status: string; statusReason: string | null; statusChangedAt: Date | null; tokenExpiresAt: Date | null }[]
+  channels: { id: string; tenantId: string; label: string; status: string; statusReason: string | null; statusChangedAt: Date | null; tokenExpiresAt: Date | null; wabaId: string; foreignApps: { id: string; name: string; firstSeenAt: string }[] }[]
   webhooksFailed: { count: number; firstAt: Date; lastError: string | null } | null
   unroutable: { key: string; count: number; lastAt: Date }[]
   bcv: { error: string; checkedAt: Date | null; rate: string | null; effectiveDate: string | null; companies: number } | null
@@ -91,6 +92,12 @@ export function platformAlerts(f: AlertFacts): PlatformAlert[] {
   for (const c of f.channels) {
     if (!tenant.has(c.tenantId)) continue
     const base = { ...ofTenant(c.tenantId), ...ofChannel(c.id), category: 'connection' as const }
+    // Another app receives this number's messages (mockup web-31): a leak, whatever the number's state.
+    if (c.foreignApps.length > 0) {
+      const since = c.foreignApps.map((a) => a.firstSeenAt).sort()[0] ?? null
+      const apps = c.foreignApps.map((a) => `${a.name || 'Sin nombre'} (${a.id})`).join(', ')
+      alerts.push({ ...base, id: `${c.id}:foreign_app`, kind: 'foreign_app', severity: 'critical', since, facts: { apps, count: c.foreignApps.length, wabaId: c.wabaId } })
+    }
     if (c.status === 'disconnected') {
       alerts.push({ ...base, id: `${c.id}:disconnected`, kind: 'channel_disconnected', severity: 'critical', since: at(c.statusChangedAt), facts: { reason: c.statusReason } })
       continue

@@ -24,7 +24,7 @@ describe('the rules', () => {
   const empty: AlertFacts = {
     now: NOW,
     tenants: [{ id: 't1', name: 'Panadería Corteza', status: 'active', createdAt: ago(60) }],
-    channels: [{ id: 'c1', tenantId: 't1', label: 'Ventas', status: 'connected', statusReason: null, statusChangedAt: null, tokenExpiresAt: null }],
+    channels: [{ id: 'c1', tenantId: 't1', label: 'Ventas', status: 'connected', statusReason: null, statusChangedAt: null, tokenExpiresAt: null, wabaId: '1523410889418669', foreignApps: [] }],
     webhooksFailed: null,
     unroutable: [],
     bcv: null,
@@ -54,6 +54,17 @@ describe('the rules', () => {
   it('more than 1,000 service replies in a month: Meta starts charging', () => {
     expect(platformAlerts({ ...empty, serviceReplies: [{ tenantId: 't1', channelId: 'c1', count: 1140 }] })).toMatchObject([{ kind: 'free_replies_exceeded', facts: { replies: 1140, free: 1000 } }])
     expect(platformAlerts({ ...empty, serviceReplies: [{ tenantId: 't1', channelId: 'c1', count: 1000 }] })).toEqual([])
+  })
+
+  it('another app receiving the messages of a number is critical, since it was first seen (mockup web-31)', () => {
+    const foreignApps = [{ id: '882956320901316', name: 'Vortex Autonomy', firstSeenAt: ago(0.5).toISOString() }]
+    const channels = empty.channels.map((c) => ({ ...c, foreignApps }))
+    expect(platformAlerts({ ...empty, channels })).toMatchObject([
+      { kind: 'foreign_app', severity: 'critical', category: 'connection', channelLabel: 'Ventas', since: ago(0.5).toISOString(), facts: { apps: 'Vortex Autonomy (882956320901316)', count: 1, wabaId: '1523410889418669' } },
+    ])
+    // Even on a disconnected number: the account still delivers to that app.
+    const down = channels.map((c) => ({ ...c, status: 'disconnected', statusReason: 'owner_disconnected' }))
+    expect(platformAlerts({ ...empty, channels: down }).map((a) => a.kind)).toEqual(['foreign_app', 'channel_disconnected'])
   })
 
   it('the BCV only matters when some company prices with it', () => {
@@ -120,7 +131,8 @@ describe('the service and the console route', () => {
   it('finds every problem in the data, each with its company and since when', async () => {
     const report = await new PlatformAlertService(t.db, new UsageService(), { agentCap: 1000, webhookMaxAttempts: 7, now: () => NOW }).report()
     const [nameA] = await t.db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, a.tenantId))
-    expect(report.checked).toEqual({ companies: 2, numbers: 2, connected: 1 })
+    // Nothing read their apps yet: the console does not vouch for them (mockup web-31).
+    expect(report.checked).toEqual({ companies: 2, numbers: 2, connected: 1, appsUnread: 2 })
     const kinds = report.alerts.map((alert) => `${alert.kind}${alert.tenantId === a.tenantId ? ':A' : alert.tenantId === b.tenantId ? ':B' : ''}`)
     expect(kinds.sort()).toEqual(['access_expiring:A', 'agent_cap_reached:B', 'bcv_unread', 'catalog_unavailable:B', 'channel_disconnected:B', 'number_silent:A', 'unroutable_number', 'webhooks_failed'].sort())
     expect(report.alerts.find((x) => x.kind === 'access_expiring')).toMatchObject({ tenantName: nameA!.name, channelId: a.channelAccountId, facts: { days: 3 } })
