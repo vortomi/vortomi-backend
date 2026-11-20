@@ -512,6 +512,13 @@
       "when": 1795099048101,
       "tag": "0072_app_subscription_checks",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1795205088781,
+      "tag": "0073_platform_payment_methods",
+      "breakpoints": true
     }
   ]
 }

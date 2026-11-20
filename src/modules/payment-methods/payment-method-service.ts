@@ -75,7 +75,13 @@ const COLUMNS = {
   sortOrder: paymentMethods.sortOrder,
 }
 
-const toView = (row: Omit<PaymentMethodView, 'currency'>): PaymentMethodView => ({ ...row, currency: currencyOf(row.type) })
+export const toView = (row: Omit<PaymentMethodView, 'currency'>): PaymentMethodView => ({ ...row, currency: currencyOf(row.type) })
+
+/** A new order lists every current method exactly once (a company's or Vortomi's own). */
+export function assertCompleteOrder(ids: string[], current: { id: string }[]): void {
+  const known = new Set(current.map((m) => m.id))
+  if (new Set(ids).size !== ids.length || ids.length !== known.size || ids.some((id) => !known.has(id))) throw new PaymentMethodOrderError()
+}
 
 /**
  * How a company gets paid (Ajustes → Métodos de pago). Everyone in the company reads them; admins
@@ -117,9 +123,7 @@ export class PaymentMethodService {
 
   /** The order customers see them in: every method of the company, once. */
   async reorder(scope: TenantScope, ids: string[]): Promise<PaymentMethodView[]> {
-    const current = await this.list(scope)
-    const known = new Set(current.map((m) => m.id))
-    if (new Set(ids).size !== ids.length || ids.length !== known.size || ids.some((id) => !known.has(id))) throw new PaymentMethodOrderError()
+    assertCompleteOrder(ids, await this.list(scope))
     const position = sql.join(
       ids.map((id, index) => sql`when ${id}::uuid then ${index}::int`),
       sql` `,

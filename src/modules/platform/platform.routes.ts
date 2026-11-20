@@ -13,6 +13,8 @@ import { type TenantAdminService, adminInvitationInput, channelInput, lookupInpu
 import { type ChannelAdminService, channelLookupInput, replaceNumberInput } from './channel-admin-service.ts'
 import type { PlatformTeamService } from './platform-team-service.ts'
 import { platformTeamRoutes } from './platform-team.routes.ts'
+import { PlatformPaymentMethodService } from './platform-payment-methods.ts'
+import { platformPaymentMethodRoutes } from './platform-payment-methods.routes.ts'
 import type { PlatformAlertService } from './platform-alert-service.ts'
 import { TenantInsightService } from './tenant-insights.ts'
 import { tenantInsightRoutes } from './tenant-insights.routes.ts'
@@ -62,6 +64,8 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
   void app.register(platformTeamRoutes, { team })
   // The figures about each company (mockup web-25): same guard.
   void app.register(tenantInsightRoutes, { insights: new TenantInsightService(db, agentCap) })
+  // Where companies pay Vortomi (Suscripciones → Métodos de pago): same guard.
+  void app.register(platformPaymentMethodRoutes, { methods: new PlatformPaymentMethodService(db) })
 
   app.get('/tenants', async () => ({ tenants: await tenants.list() }))
 
