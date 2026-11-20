@@ -45,6 +45,7 @@ import { PaymentReferenceRequiredError, PaymentReferenceUsedError } from '../mod
 import { InvalidPictureError } from '../modules/sale-receipts/picture.ts'
 import { ReceiptAlreadyIssuedError, SaleReceiptNotFoundError } from '../modules/sale-receipts/sale-receipt-service.ts'
 import { PaymentMethodNotFoundError, PaymentMethodOrderError } from '../modules/payment-methods/payment-method-service.ts'
+import { PlanInUseError, PlanNotFoundError } from '../modules/platform/platform-plans.ts'
 import { ConcurrentSendError, ServiceWindowClosedError, TemplateNotUsableError } from '../modules/messaging/outbound.service.ts'
 import { InvalidTemplateError } from '../modules/templates/template-body.ts'
 import { TemplateAdminRequiredError } from '../modules/templates/template-service.ts'
@@ -121,6 +122,8 @@ const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [InvalidPictureError, 422, 'invalid_picture'],
   [PaymentMethodNotFoundError, 404, 'payment_method_not_found'],
   [PaymentMethodOrderError, 422, 'order_mismatch'],
+  [PlanNotFoundError, 404, 'plan_not_found'],
+  [PlanInUseError, 409, 'plan_in_use'],
   [MentionNotMemberError, 422, 'mention_not_member'],
   [UnknownTagError, 422, 'unknown_tag'],
   [OwnerNotMemberError, 422, 'owner_not_member'],
@@ -179,6 +182,8 @@ const CONSTRAINT_CONFLICTS: Record<string, string> = {
   // The owner stays an active admin (the service refuses first); one owner per company.
   memberships_owner_check: 'owner_protected',
   memberships_one_owner_key: 'owner_exists',
+  // Two plans with the same name (any case): the index is the only check, so it holds under races too.
+  platform_plans_name_key: 'plan_name_taken',
 }
 // 23505 unique, 23503 foreign key, 23514 check.
 const CONFLICT_CODES = new Set(['23505', '23503', '23514'])

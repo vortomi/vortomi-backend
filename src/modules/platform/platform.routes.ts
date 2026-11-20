@@ -15,6 +15,8 @@ import type { PlatformTeamService } from './platform-team-service.ts'
 import { platformTeamRoutes } from './platform-team.routes.ts'
 import { PlatformPaymentMethodService } from './platform-payment-methods.ts'
 import { platformPaymentMethodRoutes } from './platform-payment-methods.routes.ts'
+import { PlatformPlanService } from './platform-plans.ts'
+import { platformPlanRoutes } from './platform-plans.routes.ts'
 import type { PlatformAlertService } from './platform-alert-service.ts'
 import { TenantInsightService } from './tenant-insights.ts'
 import { tenantInsightRoutes } from './tenant-insights.routes.ts'
@@ -66,6 +68,8 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
   void app.register(tenantInsightRoutes, { insights: new TenantInsightService(db, agentCap) })
   // Where companies pay Vortomi (Suscripciones → Métodos de pago): same guard.
   void app.register(platformPaymentMethodRoutes, { methods: new PlatformPaymentMethodService(db) })
+  // Vortomi's plans (Suscripciones → Planes): same guard.
+  void app.register(platformPlanRoutes, { plans: new PlatformPlanService(db) })
 
   app.get('/tenants', async () => ({ tenants: await tenants.list() }))
 

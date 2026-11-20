@@ -519,6 +519,13 @@
       "when": 1795205088781,
       "tag": "0073_platform_payment_methods",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1795208399303,
+      "tag": "0074_platform_plans",
+      "breakpoints": true
     }
   ]
 }
