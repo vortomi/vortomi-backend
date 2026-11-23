@@ -32,6 +32,9 @@ export interface PlanView extends PlanInput {
   companies: number
 }
 
+/** A plan as a company sees it: no count of companies, no switch. */
+export type CompanyPlanView = Omit<PlanView, 'companies' | 'isActive'>
+
 /**
  * How many companies are on each plan. Companies are not linked to these plans yet (they still use
  * the fixed internal/basic/team list), so for now none; when subscriptions exist, they answer here.
@@ -138,6 +141,22 @@ export class PlatformPlanService {
       .returning(COLUMNS)
     if (!row) throw new PlanNotFoundError()
     return (await this.withCompanies([row]))[0]!
+  }
+
+  /**
+   * What a company sees in its panel (Suscripción → Planes): the active plans only, without how many
+   * companies are on each or whether a plan is suspended (suspended plans are simply not there).
+   */
+  async listActive(): Promise<CompanyPlanView[]> {
+    const rows = await this.db
+      .select(COLUMNS)
+      .from(platformPlans)
+      .where(eq(platformPlans.isActive, true))
+      .orderBy(asc(platformPlans.createdAt), asc(platformPlans.id))
+    return rows.map((row) => {
+      const { companies: _companies, isActive: _isActive, ...plan } = toView(row, 0)
+      return plan
+    })
   }
 
   /** Only a plan no company has. */

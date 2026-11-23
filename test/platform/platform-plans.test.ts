@@ -14,7 +14,7 @@ import { type SeededTenant, seedTwoTenants } from '../helpers/tenants.ts'
 let t: TestDatabase
 let app: FastifyInstance
 let company: SeededTenant
-const who = { yornel: '', laura: '' }
+const who = { yornel: '', laura: '', carlos: '' }
 
 const equipo = {
   name: 'Equipo',
@@ -30,6 +30,8 @@ beforeAll(async () => {
   who.yornel = await seedUser(t.db, 'Yornel', 'super_admin')
   who.laura = await seedUser(t.db, 'Laura')
   await seedMembership(t.db, company.tenantId, who.laura, { role: 'admin' })
+  who.carlos = await seedUser(t.db, 'Carlos')
+  await seedMembership(t.db, company.tenantId, who.carlos, { role: 'agent' })
   app = await buildTestApp(t.db)
 })
 
@@ -114,5 +116,29 @@ describe('a plan companies are on', () => {
     expect((await plans.list()).find((p) => p.id === plan.id)?.companies).toBe(2)
     await expect(plans.remove(plan.id)).rejects.toBeInstanceOf(PlanInUseError)
     expect(await plans.setActive(plan.id, false)).toMatchObject({ isActive: false, companies: 2 })
+  })
+})
+
+describe('what a company sees (Suscripción → Planes)', () => {
+  const panel = async (userId: string, tenantId = company.tenantId) =>
+    app.inject({ method: 'GET', url: `/api/tenants/${tenantId}/plans`, headers: await bearer(userId) })
+
+  it('its admins read the active plans only, without counts or switches', async () => {
+    const shown = (await console_('POST', '/plans', { ...equipo, name: 'Visible', isActive: true })).json<View>()
+    await console_('POST', '/plans', { ...equipo, name: 'Oculto', isActive: false })
+    const read = await panel(who.laura)
+    expect(read.statusCode).toBe(200)
+    const items = read.json<{ items: Record<string, unknown>[] }>().items
+    expect(items.map((p) => p.name)).toContain('Visible')
+    expect(items.map((p) => p.name)).not.toContain('Oculto')
+    const visible = items.find((p) => p.id === shown.id)!
+    expect(visible).toMatchObject({ name: 'Visible', priceCents: 7900, discounts: equipo.discounts, benefits: equipo.benefits })
+    expect(visible).not.toHaveProperty('companies')
+    expect(visible).not.toHaveProperty('isActive')
+  })
+
+  it('agents and other companies do not', async () => {
+    expect((await panel(who.carlos)).json()).toEqual({ error: 'admin_required' })
+    expect((await panel(who.yornel)).json()).toEqual({ error: 'not_a_member' })
   })
 })

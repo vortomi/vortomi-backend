@@ -65,6 +65,8 @@ import { OrderConfirmation } from '../modules/orders/order-confirmation.ts'
 import { OrderService } from '../modules/orders/order-service.ts'
 import { PaymentMethodService } from '../modules/payment-methods/payment-method-service.ts'
 import { paymentMethodRoutes } from '../modules/payment-methods/payment-methods.routes.ts'
+import { companyPlanRoutes } from '../modules/platform/company-plans.routes.ts'
+import { PlatformPlanService } from '../modules/platform/platform-plans.ts'
 import { orderRoutes } from '../modules/orders/orders.routes.ts'
 import { ReceiptSettingsService } from '../modules/sale-receipts/receipt-settings-service.ts'
 import { SaleReceiptService } from '../modules/sale-receipts/sale-receipt-service.ts'
@@ -168,6 +170,8 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   await app.register(agentRoutes, { prefix: COMPANY, db, settings: new AgentSettingsService(agent.modelReady, agent.monthlyCap) })
   await app.register(deliveryRoutes, { prefix: COMPANY, db, delivery: new DeliveryService() })
   await app.register(paymentMethodRoutes, { prefix: COMPANY, db, methods: new PaymentMethodService() })
+  // Vortomi's active plans, for the company's Suscripción → Planes (its admins only).
+  await app.register(companyPlanRoutes, { prefix: COMPANY, db, plans: new PlatformPlanService(db) })
   const orders = new OrderService()
   const botDelivery = new BotDelivery(db, credentials, sender)
   const confirmation = new OrderConfirmation(orders, botDelivery)
