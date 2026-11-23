@@ -17,6 +17,9 @@ import { PlatformPaymentMethodService } from './platform-payment-methods.ts'
 import { platformPaymentMethodRoutes } from './platform-payment-methods.routes.ts'
 import { PlatformPlanService } from './platform-plans.ts'
 import { platformPlanRoutes } from './platform-plans.routes.ts'
+import { PlatformExchangeRateService } from './platform-exchange-rates.ts'
+import { platformExchangeRateRoutes } from './platform-exchange-rates.routes.ts'
+import type { BcvRateService } from '../exchange-rates/bcv-rate.service.ts'
 import type { PlatformAlertService } from './platform-alert-service.ts'
 import { TenantInsightService } from './tenant-insights.ts'
 import { tenantInsightRoutes } from './tenant-insights.routes.ts'
@@ -36,6 +39,8 @@ export interface PlatformRoutesOptions {
   resets: CompanyPasswordResets
   /** Agent answers per company and month (env AGENT_MONTHLY_REPLY_CAP), for the companies' figures. */
   agentCap?: number
+  /** The platform's BCV reader, for Vortomi's own rate (Ajustes → Tasa de cambio). */
+  bcv: Pick<BcvRateService, 'refresh'>
 }
 
 const tenantParams = z.object({ tenantId: z.uuid() })
@@ -50,7 +55,7 @@ const sinceQuery = z.object({ since: z.iso.datetime({ offset: true }) })
  * session signed in with the second factor (documentations/04, D12): this console
  * reaches every company, so a stolen password alone must not open it.
  */
-export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types, channels, team, alerts, resets, agentCap = 1000 }, done) => {
+export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types, channels, team, alerts, resets, agentCap = 1000, bcv }, done) => {
   app.addHook('preHandler', async (request) => {
     const identity = identityOf(request)
     const account = await directory.findAccount(identity.userId)
@@ -70,6 +75,8 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
   void app.register(platformPaymentMethodRoutes, { methods: new PlatformPaymentMethodService(db) })
   // Vortomi's plans (Suscripciones → Planes): same guard.
   void app.register(platformPlanRoutes, { plans: new PlatformPlanService(db) })
+  // Vortomi's own exchange rate (Ajustes → Tasa de cambio): same guard.
+  void app.register(platformExchangeRateRoutes, { rates: new PlatformExchangeRateService(db), bcv })
 
   app.get('/tenants', async () => ({ tenants: await tenants.list() }))
 

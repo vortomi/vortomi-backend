@@ -135,7 +135,7 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   const accounts = staffAccounts ?? new SupabaseStaffAccounts(db)
   const platformTeam = new PlatformTeamService(db, authenticatorFactors ?? new SupabaseAuthenticatorFactors(db), accounts, resetLinks)
   const companyResets = new CompanyPasswordResets(db, resetLinks, accounts)
-  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage, types: businessTypes, channels: channelAdmin, team: platformTeam, resets: companyResets, alerts: new PlatformAlertService(db, usage, { agentCap: agent.monthlyCap, webhookMaxAttempts: WEBHOOK_MAX_ATTEMPTS }), agentCap: agent.monthlyCap })
+  await app.register(platformRoutes, { prefix: '/platform', directory, tenants: tenantAdmin, db, usage, types: businessTypes, channels: channelAdmin, team: platformTeam, resets: companyResets, alerts: new PlatformAlertService(db, usage, { agentCap: agent.monthlyCap, webhookMaxAttempts: WEBHOOK_MAX_ATTEMPTS }), agentCap: agent.monthlyCap, bcv })
   await app.register(platformInvitationRoutes, { team: platformTeam })
   await app.register(usageRoutes, { prefix: COMPANY, db, usage })
   await app.register(conversationRoutes, {

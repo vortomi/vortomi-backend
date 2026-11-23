@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client.ts'
-import { bcvStatus, tenantSettings } from '../../db/schema/index.ts'
+import { bcvStatus, platformSettings, tenantSettings } from '../../db/schema/index.ts'
 import type { BcvRate } from './bcv-page.ts'
 import { BCV_NO_ANSWER, BcvReadError, type BcvSource } from './bcv-source.ts'
 
@@ -14,6 +14,8 @@ const MIN_READ_GAP_MS = 60_000
  * read every hour, on "Actualizar ahora" and on switching to it, but only while at least one
  * company uses it. The read is kept once for the platform (bcv_status); each company that uses
  * the BCV gets it in its own history from its fecha valor, on its own calendar, never before.
+ * Vortomi's own rate (platform_exchange_rates, what companies pay their plan with) gets it the same
+ * way, on Caracas' calendar, when Vortomi chose the BCV: the same read, never a second one.
  * A failed read keeps the last good one: no company goes without a rate.
  */
 export class BcvRateService {
@@ -55,7 +57,8 @@ export class BcvRateService {
 
   private async readAndApply(): Promise<void> {
     const [anyone] = await this.db.select({ id: tenantSettings.tenantId }).from(tenantSettings).where(eq(tenantSettings.rateSource, 'bcv')).limit(1)
-    if (!anyone) return
+    const [vortomi] = await this.db.select({ id: platformSettings.id }).from(platformSettings).where(eq(platformSettings.rateSource, 'bcv'))
+    if (!anyone && !vortomi) return
 
     let read: { rate: BcvRate | null; error: string | null } | null = null
     if (this.now() - this.lastReadAt >= MIN_READ_GAP_MS) {
@@ -94,6 +97,18 @@ export class BcvRateService {
                               order by er.created_at desc limit 1) as latest on true
          where b.rate is not null
            and b.effective_date <= (now() at time zone t.timezone)::date
+           and (latest.rate is null or latest.rate <> b.rate or latest.source <> 'bcv')
+      `)
+      // Vortomi's own rate, on Caracas' calendar, under the same rules.
+      await tx.execute(sql`
+        insert into platform_exchange_rates (rate, effective_date, previous_rate, source)
+        select b.rate, b.effective_date, latest.rate, 'bcv'
+          from bcv_status b
+          join platform_settings p on p.rate_source = 'bcv'
+          left join lateral (select r.rate, r.source from platform_exchange_rates r
+                              order by r.created_at desc limit 1) as latest on true
+         where b.rate is not null
+           and b.effective_date <= (now() at time zone 'America/Caracas')::date
            and (latest.rate is null or latest.rate <> b.rate or latest.source <> 'bcv')
       `)
     })
