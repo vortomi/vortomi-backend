@@ -1,13 +1,20 @@
 import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database, Executor } from '../../db/client.ts'
-import { companySubscriptions, platformExchangeRates, platformPlans, subscriptionCharges, tenants } from '../../db/schema/index.ts'
-import type { ChargeDiscounts } from '../../db/schema/subscriptions.ts'
+import { companySubscriptions, companyTrials, platformExchangeRates, platformPlans, subscriptionCharges, tenants } from '../../db/schema/index.ts'
+import type { ChargeDiscounts, SUBSCRIPTION_ORIGINS } from '../../db/schema/subscriptions.ts'
 import type { PlanSubscribers } from '../platform/platform-plans.ts'
 import { billingEnforced } from './billing-enforcement.ts'
-import { type BillingFacts, type BillingState, billingState, caracasToday, suspendsOn } from './subscription-rules.ts'
+import { type BillingFacts, type BillingState, billingState, caracasToday, chargeFor, suspendsOn, trialEndsOn, trialOver } from './subscription-rules.ts'
 
 export const assignPlanInput = z.object({ planId: z.uuid() })
+/** The company's own choice (Suscripción → Planes): the plan and the months it means to pay (1 by default). */
+export const choosePlanInput = z.object({
+  planId: z.uuid(),
+  months: z.union([z.literal(1), z.literal(3), z.literal(6), z.literal(12)]).default(1),
+})
+
+export type SubscriptionOrigin = (typeof SUBSCRIPTION_ORIGINS)[number]
 
 /** The company already has a plan: changing it is a later stage (documentations/18, §8). */
 export class SubscriptionExistsError extends Error {
@@ -51,6 +58,8 @@ export interface SubscriptionView {
   enforced: boolean
   plan: { id: string; name: string; description: string; priceCents: number; discounts: ChargeDiscounts; benefits: string[] }
   assignedAt: Date
+  /** Chosen by the company, or assigned by the console as an exception. */
+  origin: SubscriptionOrigin
   billingDay: number | null
   nextDueOn: string
   suspendsOn: string
@@ -59,6 +68,15 @@ export interface SubscriptionView {
   charge: ChargeView | null
   /** Vortomi's exchange rate for the bolívares, or null while it has none. */
   rate: { bsPerUsd: string; effectiveDate: string } | null
+}
+
+/** What the company's Suscripción reads: its subscription, or its trial while it has none. */
+export interface CompanySubscriptionView {
+  subscription: SubscriptionView | null
+  /** The last day of its trial; null for a company that never had one. */
+  trialEndsOn: string | null
+  enforced: boolean
+  rate: SubscriptionView['rate']
 }
 
 /** A row of Suscripciones → Cobros: every company, with or without a plan. */
@@ -103,11 +121,29 @@ export async function billingFactsOf(executor: Executor, tenantId: string): Prom
   return { ...subscription, owedCents: owed?.cents ?? 0 }
 }
 
-/** Whether a company is suspended for not paying, right now (only while the rule is enforced). */
+/**
+ * Whether a company is suspended right now (only while the rule is enforced): with a plan, for not
+ * paying; without one, once its trial is over. A company with neither is left alone.
+ */
 export async function unpaidAndSuspended(executor: Executor, tenantId: string, today = caracasToday()): Promise<boolean> {
   if (!billingEnforced()) return false
   const facts = await billingFactsOf(executor, tenantId)
-  return facts !== null && billingState(facts, today) === 'suspended'
+  if (facts) return billingState(facts, today) === 'suspended'
+  const endsOn = await trialEndOf(executor, tenantId)
+  return endsOn !== null && trialOver(endsOn, today)
+}
+
+async function trialEndOf(executor: Executor, tenantId: string): Promise<string | null> {
+  const [trial] = await executor.select({ endsOn: companyTrials.endsOn }).from(companyTrials).where(eq(companyTrials.tenantId, tenantId))
+  return trial?.endsOn ?? null
+}
+
+/**
+ * A company that goes live gets its days to choose a plan, counted from today. Only the first time:
+ * a company suspended and live again keeps the trial it had.
+ */
+export async function startTrial(executor: Executor, tenantId: string, today = caracasToday()): Promise<void> {
+  await executor.insert(companyTrials).values({ tenantId, endsOn: trialEndsOn(today) }).onConflictDoNothing()
 }
 
 /**
@@ -120,8 +156,13 @@ export class SubscriptionService {
     private readonly today: () => string = () => caracasToday(),
   ) {}
 
-  /** The plan and its first charge, in one transaction. Only an active plan, only once. */
-  async assign(tenantId: string, planId: string, assignedBy: string): Promise<SubscriptionView> {
+  /**
+   * The plan and its first charge, due today, in one transaction. Only an active plan, only once.
+   * The company chooses it itself (with the months it means to pay); the console may assign it as an
+   * exception (1 month). Either way the company has until its suspension date to pay.
+   */
+  async assign(tenantId: string, planId: string, assignedBy: string, choice: { months?: number; origin?: SubscriptionOrigin } = {}): Promise<SubscriptionView> {
+    const months = choice.months ?? 1
     await this.db.transaction(async (tx) => {
       const [company] = await tx.select({ id: tenants.id }).from(tenants).where(and(eq(tenants.id, tenantId), ne(tenants.status, 'draft')))
       if (!company) throw new CompanyNotFoundError()
@@ -130,19 +171,21 @@ export class SubscriptionService {
       const today = this.today()
       const inserted = await tx
         .insert(companySubscriptions)
-        .values({ tenantId, planId, assignedBy, nextDueOn: today })
+        .values({ tenantId, planId, assignedBy, origin: choice.origin ?? 'console', nextDueOn: today })
         .onConflictDoNothing()
         .returning({ tenantId: companySubscriptions.tenantId })
       if (!inserted.length) throw new SubscriptionExistsError()
+      const discounts = { '1': plan.discount1, '3': plan.discount3, '6': plan.discount6, '12': plan.discount12 }
+      const { discountPercent, amountCents } = chargeFor(plan.priceCents, discounts, months)
       await tx.insert(subscriptionCharges).values({
         tenantId,
         planId,
         planName: plan.name,
         basePriceCents: plan.priceCents,
-        discounts: { '1': plan.discount1, '3': plan.discount3, '6': plan.discount6, '12': plan.discount12 },
-        months: 1,
-        discountPercent: plan.discount1,
-        amountCents: Math.round((plan.priceCents * (100 - plan.discount1)) / 100),
+        discounts,
+        months,
+        discountPercent,
+        amountCents,
         dueOn: today,
       })
     })
@@ -163,6 +206,7 @@ export class SubscriptionService {
         discount12: platformPlans.discount12,
         benefits: platformPlans.benefits,
         assignedAt: companySubscriptions.assignedAt,
+        origin: companySubscriptions.origin,
         billingDay: companySubscriptions.billingDay,
         nextDueOn: companySubscriptions.nextDueOn,
       })
@@ -178,11 +222,7 @@ export class SubscriptionService {
       .where(and(eq(subscriptionCharges.tenantId, tenantId), sql`${subscriptionCharges.paidCents} < ${subscriptionCharges.amountCents}`))
       .orderBy(asc(subscriptionCharges.dueOn), asc(subscriptionCharges.createdAt))
       .limit(1)
-    const [rate] = await this.db
-      .select({ bsPerUsd: platformExchangeRates.rate, effectiveDate: platformExchangeRates.effectiveDate })
-      .from(platformExchangeRates)
-      .orderBy(desc(platformExchangeRates.createdAt))
-      .limit(1)
+    const rate = await this.rate()
     return {
       state: billingState(facts, this.today()),
       enforced: billingEnforced(),
@@ -195,13 +235,35 @@ export class SubscriptionService {
         benefits: row.benefits,
       },
       assignedAt: row.assignedAt,
+      origin: row.origin,
       billingDay: row.billingDay,
       nextDueOn: row.nextDueOn,
       suspendsOn: suspendsOn(row.nextDueOn),
       owedCents: facts.owedCents,
       charge: charge ?? null,
-      rate: rate ?? null,
+      rate,
     }
+  }
+
+  /** The company's Suscripción: its subscription, its trial while it has none, and Vortomi's rate. */
+  async companyView(tenantId: string): Promise<CompanySubscriptionView> {
+    const subscription = await this.view(tenantId)
+    return {
+      subscription,
+      trialEndsOn: await trialEndOf(this.db, tenantId),
+      enforced: billingEnforced(),
+      rate: subscription ? subscription.rate : await this.rate(),
+    }
+  }
+
+  /** Vortomi's latest exchange rate, for the bolívares; null while it has none. */
+  private async rate(): Promise<SubscriptionView['rate']> {
+    const [rate] = await this.db
+      .select({ bsPerUsd: platformExchangeRates.rate, effectiveDate: platformExchangeRates.effectiveDate })
+      .from(platformExchangeRates)
+      .orderBy(desc(platformExchangeRates.createdAt))
+      .limit(1)
+    return rate ?? null
   }
 
   /** Suscripciones → Cobros: every company that is past its draft, with its plan or without one. */

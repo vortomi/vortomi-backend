@@ -5,6 +5,9 @@ import { users } from './access.ts'
 import { platformPlans } from './platform-plans.ts'
 import { tenants } from './tenancy.ts'
 
+/** Who put the company on its plan: the company itself (Suscripción → Planes) or Vortomi's console (an exception). */
+export const SUBSCRIPTION_ORIGINS = ['company', 'console'] as const
+
 /** The plan's discount for paying at least 1, 3, 6 or 12 months, copied into each charge. */
 export type ChargeDiscounts = Record<'1' | '3' | '6' | '12', number>
 
@@ -26,14 +29,33 @@ export const companySubscriptions = pgTable(
       .references(() => platformPlans.id),
     assignedAt: timestamptz('assigned_at').notNull().defaultNow(),
     assignedBy: uuid('assigned_by').references(() => users.id),
+    origin: text('origin', { enum: SUBSCRIPTION_ORIGINS }).notNull().default('console'),
     // Day of the month every payment is due; null until the first payment.
     billingDay: smallint('billing_day'),
     // The day the first unpaid charge is due (Caracas calendar).
     nextDueOn: date('next_due_on', { mode: 'string' }).notNull(),
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
-  (t) => [check('company_subscriptions_billing_day_check', sql`${t.billingDay} is null or ${t.billingDay} between 1 and 31`)],
+  (t) => [
+    check('company_subscriptions_billing_day_check', sql`${t.billingDay} is null or ${t.billingDay} between 1 and 31`),
+    check('company_subscriptions_origin_check', sql`${t.origin} in ('company', 'console')`),
+  ],
 )
+
+/**
+ * The days a live company may use Vortomi before choosing a plan (documentations/18, decided
+ * 24/11/2026): 7, from the day it goes live (or, for the companies that existed, from the day this
+ * was published). From 00:00 of the day after its last one, a company still without a plan is
+ * suspended like one that does not pay. Written once; going live again keeps it.
+ */
+export const companyTrials = pgTable('company_trials', {
+  tenantId: uuid('company_id')
+    .primaryKey()
+    .references(() => tenants.id, { onDelete: 'cascade' }),
+  // The last day of the trial (Caracas calendar).
+  endsOn: date('ends_on', { mode: 'string' }).notNull(),
+  createdAt: createdAtColumn(),
+})
 
 /**
  * What a company owes for one period. Everything about the plan is copied when the charge is made,

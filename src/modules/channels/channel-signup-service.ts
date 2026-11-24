@@ -8,6 +8,7 @@ import { type TenantAdminService, WabaTakenError } from '../platform/tenant-admi
 import { type AppDataSync, type WabaDirectory, WhatsAppApiError } from '../whatsapp/cloud-api.client.ts'
 import type { BusinessTokenExchange } from '../whatsapp/meta-oauth.client.ts'
 import type { ChannelCredentials } from './channel-credentials.ts'
+import { startTrial } from '../subscriptions/subscription-service.ts'
 
 /** «Conectar WhatsApp» is not set up on this server (no Embedded Signup app). */
 export class SignupUnavailableError extends Error {
@@ -134,7 +135,11 @@ export class ChannelSignupService {
       .set({ status: 'active' })
       .where(and(eq(tenants.id, tenantId), eq(tenants.status, 'awaiting_owner')))
       .returning({ id: tenants.id })
-    if (rows.length) this.log.info({ tenantId }, 'Company went live: its owner connected the first number')
+    if (rows.length) {
+      // Its 7 days to choose a plan start now (documentations/18).
+      await startTrial(this.db, tenantId)
+      this.log.info({ tenantId }, 'Company went live: its owner connected the first number')
+    }
     return rows.length > 0
   }
 

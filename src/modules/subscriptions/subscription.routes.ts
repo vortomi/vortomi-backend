@@ -4,7 +4,7 @@ import type { Database } from '../../db/client.ts'
 import { identityOf } from '../../http/authenticate.ts'
 import { asAdmin, companyOf } from '../../http/company-scope.ts'
 import { parseInput } from '../../http/validation.ts'
-import { type SubscriptionService, assignPlanInput } from './subscription-service.ts'
+import { type SubscriptionService, assignPlanInput, choosePlanInput } from './subscription-service.ts'
 
 const tenantParams = z.object({ tenantId: z.uuid() })
 
@@ -35,13 +35,22 @@ export interface CompanySubscriptionRoutesOptions {
 }
 
 /**
- * /tenants/:tenantId/subscription: the company's own Suscripción, for its owner and admins. It stays
- * open while the company is suspended for not paying ('billing' stage): it is where it pays.
+ * /tenants/:tenantId/subscription: the company's own Suscripción, for its owner and admins (mockup
+ * web-38). It reads its plan or its trial, and chooses its plan itself. It stays open while the
+ * company is suspended ('billing' stage): it is where it chooses and pays.
  */
 export const companySubscriptionRoutes: FastifyPluginCallback<CompanySubscriptionRoutesOptions> = (app, { db, subscriptions }, done) => {
   app.get('/subscription', async (request) => {
     await asAdmin(db, request, () => Promise.resolve(), 'billing')
-    return { subscription: await subscriptions.view(companyOf(request).tenantId) }
+    return subscriptions.companyView(companyOf(request).tenantId)
+  })
+  // The membership is proven first; the subscription is then written as the platform (a company
+  // never writes these tables itself: migration 0076).
+  app.post('/subscription', async (request, reply) => {
+    const { planId, months } = parseInput(choosePlanInput, request.body)
+    await asAdmin(db, request, () => Promise.resolve(), 'billing')
+    const subscription = await subscriptions.assign(companyOf(request).tenantId, planId, identityOf(request).userId, { months, origin: 'company' })
+    return reply.code(201).send({ subscription })
   })
   done()
 }

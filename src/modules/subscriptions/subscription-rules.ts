@@ -47,6 +47,15 @@ export function billingState(facts: BillingFacts, today: string): BillingState {
   return daysBetween(today, facts.nextDueOn) < SOON_DAYS ? 'due_soon' : 'active'
 }
 
+/** Days a live company may use Vortomi before choosing a plan, the day it goes live included. */
+export const TRIAL_DAYS = 7
+
+/** The last day of a trial that starts today. */
+export const trialEndsOn = (startsOn: string): string => addDays(startsOn, TRIAL_DAYS - 1)
+
+/** A company without a plan is suspended from 00:00 of the day after its trial's last day. */
+export const trialOver = (endsOn: string, today: string): boolean => today > endsOn
+
 /** A plan paid for `months`: its discount tier («from» 1, 3, 6 or 12) on the base price of every month. */
 export function chargeFor(basePriceCents: number, discounts: Record<'1' | '3' | '6' | '12', number>, months: number) {
   const tier = months >= 12 ? '12' : months >= 6 ? '6' : months >= 3 ? '3' : '1'

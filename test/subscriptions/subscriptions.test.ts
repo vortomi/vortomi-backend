@@ -6,7 +6,7 @@
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { companySubscriptions, platformActivity, platformExchangeRates, subscriptionCharges, tenants } from '../../src/db/schema/index.ts'
+import { companySubscriptions, companyTrials, platformActivity, platformExchangeRates, subscriptionCharges, tenants } from '../../src/db/schema/index.ts'
 import { setBillingEnforcement } from '../../src/modules/subscriptions/billing-enforcement.ts'
 import { addDays, caracasToday } from '../../src/modules/subscriptions/subscription-rules.ts'
 import { companyIsActive } from '../../src/modules/tenancy/company-status.ts'
@@ -45,7 +45,7 @@ afterAll(async () => {
   await t.close()
 })
 
-type Method = 'GET' | 'POST' | 'DELETE'
+type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 async function console_(method: Method, path: string, payload?: object, userId = who.yornel) {
   return app.inject({ method, url: `/api/platform${path}`, headers: await bearer(userId, { aal: 'aal2' }), ...(payload ? { payload } : {}) })
 }
@@ -73,7 +73,7 @@ interface Row {
 describe('a company without a plan', () => {
   it('has no subscription and appears in Cobros as without plan', async () => {
     expect((await console_('GET', `/tenants/${a.tenantId}/subscription`)).json()).toEqual({ subscription: null })
-    expect((await panel('/subscription')).json()).toEqual({ subscription: null })
+    expect((await panel('/subscription')).json()).toMatchObject({ subscription: null, trialEndsOn: null, enforced: false })
     const rows = (await console_('GET', '/subscriptions')).json<{ items: Row[] }>().items
     expect(rows.find((r) => r.tenantId === a.tenantId)).toMatchObject({ planName: null, owedCents: 0, state: 'none' })
   })
@@ -131,7 +131,7 @@ describe('assigning a plan', () => {
 
 describe('what the company sees', () => {
   it('its admins read their subscription; agents and outsiders do not', async () => {
-    expect((await panel('/subscription')).json<{ subscription: View }>().subscription).toMatchObject({ state: 'awaiting_first_payment', owedCents: 7900 })
+    expect((await panel('/subscription')).json<{ subscription: View }>().subscription).toMatchObject({ state: 'awaiting_first_payment', owedCents: 7900, origin: 'console' })
     expect((await panel('/subscription', who.carlos)).json()).toEqual({ error: 'admin_required' })
     expect((await panel('/subscription', who.laura, b.tenantId)).json()).toEqual({ error: 'not_a_member' })
   })
@@ -172,5 +172,72 @@ describe('past the suspension date', () => {
     await t.db.update(subscriptionCharges).set({ paidCents: 7900 }).where(eq(subscriptionCharges.tenantId, a.tenantId))
     expect((await panel('/payment-methods')).statusCode).toBe(200)
     expect(await companyIsActive(t.db)(a.tenantId)).toBe(true)
+  })
+})
+
+describe('the company chooses its plan (mockup web-38)', () => {
+  const owner = { id: '' }
+  const agent = { id: '' }
+  const choose = async (payload: object, userId = owner.id) =>
+    app.inject({ method: 'POST', url: `/api/tenants/${b.tenantId}/subscription`, headers: await bearer(userId), payload })
+  const read = async () => (await panel('/subscription', owner.id, b.tenantId)).json<{ subscription: View | null; trialEndsOn: string | null; enforced: boolean }>()
+
+  beforeAll(async () => {
+    owner.id = await seedUser(t.db, 'Rosa')
+    await seedMembership(t.db, b.tenantId, owner.id, { role: 'admin' })
+    agent.id = await seedUser(t.db, 'Pedro')
+    await seedMembership(t.db, b.tenantId, agent.id, { role: 'agent' })
+  })
+
+  it('gets 7 days to choose when it goes live, counted once', async () => {
+    expect((await console_('PUT', `/tenants/${b.tenantId}/status`, { status: 'active' })).statusCode).toBe(204)
+    expect(await read()).toMatchObject({ subscription: null, trialEndsOn: addDays(today, 6) })
+    // Live again later: the trial it had stays.
+    await t.db.update(companyTrials).set({ endsOn: addDays(today, 2) }).where(eq(companyTrials.tenantId, b.tenantId))
+    await console_('PUT', `/tenants/${b.tenantId}/status`, { status: 'active' })
+    expect((await read()).trialEndsOn).toBe(addDays(today, 2))
+  })
+
+  it('once the trial is over without a plan, only Suscripción stays open (rule on)', async () => {
+    await t.db.update(companyTrials).set({ endsOn: addDays(today, -1) }).where(eq(companyTrials.tenantId, b.tenantId))
+    expect((await panel('/payment-methods', owner.id, b.tenantId)).statusCode).toBe(200)
+    setBillingEnforcement(true)
+    expect((await panel('/payment-methods', owner.id, b.tenantId)).json()).toEqual({ error: 'company_unpaid' })
+    expect((await panel('/plans', owner.id, b.tenantId)).statusCode).toBe(200)
+    expect((await read()).enforced).toBe(true)
+    expect(await companyIsActive(t.db)(b.tenantId)).toBe(false)
+  })
+
+  it('only its owner and admins choose, an active plan, and 1, 3, 6 or 12 months', async () => {
+    expect((await choose({ planId: plan.equipo, months: 3 }, agent.id)).json()).toEqual({ error: 'admin_required' })
+    expect((await choose({ planId: plan.paused })).json()).toEqual({ error: 'plan_unavailable' })
+    expect((await choose({ planId: plan.equipo, months: 4 })).json()).toEqual({ error: 'invalid_request' })
+    expect((await choose({ planId: plan.equipo, months: 3 }, who.laura)).json()).toEqual({ error: 'not_a_member' })
+  })
+
+  it('chooses it with the months it means to pay, even with the trial over: 3 days to pay', async () => {
+    setBillingEnforcement(true)
+    const chosen = await choose({ planId: plan.equipo, months: 3 })
+    expect(chosen.statusCode).toBe(201)
+    expect(chosen.json<{ subscription: View & { origin: string } }>().subscription).toMatchObject({
+      state: 'awaiting_first_payment',
+      origin: 'company',
+      nextDueOn: today,
+      suspendsOn: addDays(today, 3),
+      owedCents: 22515,
+      charge: { months: 3, amountCents: 22515 },
+    })
+    // With a plan, the trial no longer counts: it works until its first payment is due.
+    expect((await panel('/payment-methods', owner.id, b.tenantId)).statusCode).toBe(200)
+    expect(await companyIsActive(t.db)(b.tenantId)).toBe(true)
+  })
+
+  it('only once: changing the plan is a later stage', async () => {
+    expect((await choose({ planId: plan.equipo })).json()).toEqual({ error: 'subscription_exists' })
+  })
+
+  it('the console sees who chose it', async () => {
+    const view = (await console_('GET', `/tenants/${b.tenantId}/subscription`)).json<{ subscription: { origin: string } }>()
+    expect(view.subscription.origin).toBe('company')
   })
 })

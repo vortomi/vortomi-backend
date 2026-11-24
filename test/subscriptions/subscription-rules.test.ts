@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, billingState, caracasToday, chargeFor, suspendsOn } from '../../src/modules/subscriptions/subscription-rules.ts'
+import { addDays, billingState, caracasToday, chargeFor, suspendsOn, trialEndsOn, trialOver } from '../../src/modules/subscriptions/subscription-rules.ts'
 
 const first = (nextDueOn: string) => ({ billingDay: null, nextDueOn, owedCents: 7900 })
 const monthly = (nextDueOn: string, owedCents = 7900) => ({ billingDay: 5, nextDueOn, owedCents })
@@ -29,6 +29,12 @@ describe('the dates of a subscription', () => {
   it('only paying the whole debt avoids it: nothing owed is up to date, any amount owed counts', () => {
     expect(billingState(monthly('2026-12-05', 0), '2026-12-20')).toBe('active')
     expect(billingState(monthly('2026-12-05', 100), '2026-12-08')).toBe('suspended')
+  })
+
+  it('gives a company 7 days to choose a plan, the day it goes live included', () => {
+    expect(trialEndsOn('2026-11-24')).toBe('2026-11-30')
+    expect(trialOver('2026-11-30', '2026-11-30')).toBe(false)
+    expect(trialOver('2026-11-30', '2026-12-01')).toBe(true)
   })
 
   it('reads today in Caracas', () => {

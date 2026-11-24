@@ -8,6 +8,7 @@ import type { ChannelCredentials } from '../channels/channel-credentials.ts'
 import type { InvitationService } from '../team/invitation-service.ts'
 import type { WabaDirectory } from '../whatsapp/cloud-api.client.ts'
 import { NumberNotInAccountError, fromMeta } from './channel-errors.ts'
+import { startTrial } from '../subscriptions/subscription-service.ts'
 
 export class TenantNotFoundError extends Error {
   constructor() {
@@ -229,6 +230,8 @@ export class TenantAdminService {
       if (!channel) throw new NoChannelError()
     }
     await this.db.update(tenants).set({ status }).where(eq(tenants.id, tenantId))
+    // Live for the first time: its 7 days to choose a plan start now (documentations/18).
+    if (status === 'active') await startTrial(this.db, tenantId)
   }
 
   /**
