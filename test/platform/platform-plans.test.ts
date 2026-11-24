@@ -109,7 +109,7 @@ describe('Vortomi’s plans', () => {
 describe('a plan companies are on', () => {
   it('shows how many, and is never deleted: only suspended', async () => {
     const subscribed = new Set<string>()
-    const subscribers: PlanSubscribers = { count: async (ids) => new Map(ids.filter((i) => subscribed.has(i)).map((i) => [i, 2])) }
+    const subscribers: PlanSubscribers = { count: (ids) => Promise.resolve(new Map(ids.filter((i) => subscribed.has(i)).map((i) => [i, 2]))) }
     const plans = new PlatformPlanService(t.db, subscribers)
     const plan = await plans.create({ ...equipo, name: 'Con empresas', isActive: true })
     subscribed.add(plan.id)

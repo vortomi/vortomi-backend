@@ -16,7 +16,8 @@ export interface CompanyPlanRoutesOptions {
  */
 export const companyPlanRoutes: FastifyPluginCallback<CompanyPlanRoutesOptions> = (app, { db, plans }, done) => {
   app.get('/plans', async (request) => {
-    await asAdmin(db, request, async () => undefined)
+    // Part of Suscripción: open while the company is suspended for not paying.
+    await asAdmin(db, request, () => Promise.resolve(), 'billing')
     return { items: await plans.listActive() }
   })
   done()

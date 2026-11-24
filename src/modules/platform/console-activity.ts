@@ -26,6 +26,7 @@ const ACTIONS: Record<string, Resolve> = {
   'DELETE /tenants/:tenantId/invitations/:invitationId': 'tenant.invitation_revoked',
   'POST /tenants/:tenantId/members/:userId/password-reset': 'tenant.password_reset',
   'PUT /tenants/:tenantId/owner': 'tenant.owner_changed',
+  'POST /tenants/:tenantId/subscription': 'subscription.plan_assigned',
   'POST /business-types': 'business_type.created',
   'POST /business-types/reclassify': 'business_type.reclassified',
 }

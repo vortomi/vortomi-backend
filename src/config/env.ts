@@ -45,6 +45,9 @@ const envSchema = z.object({
 
   // How often the BCV rate is read for the companies that use it: 1 hour; 0 turns it off.
   BCV_CHECK_INTERVAL_MS: z.coerce.number().int().min(0).max(86_400_000).default(3_600_000),
+  // Suspends a company that owes Vortomi past its grace (documentations/18). Off until companies
+  // can pay from the panel: nobody may be locked out with no way to pay.
+  BILLING_ENFORCEMENT: z.enum(['on', 'off']).default('off'),
 
   // The sales agent's model (Google Gemini). Without a key the agent stays off for everyone,
   // whatever each company chose. Free tier while testing: it uses the data to improve Google's

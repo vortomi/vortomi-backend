@@ -1,4 +1,5 @@
-import { CompanyUnavailableError, NotAMemberError } from '../modules/access/member-scope.ts'
+import { CompanyUnavailableError, CompanyUnpaidError, NotAMemberError } from '../modules/access/member-scope.ts'
+import { CompanyNotFoundError, PlanUnavailableError, SubscriptionExistsError } from '../modules/subscriptions/subscription-service.ts'
 import { CategoryNotFoundError } from '../modules/inventory/category-service.ts'
 import {
   FractionalStockError,
@@ -62,6 +63,10 @@ type ErrorClass = new (...args: never[]) => Error
 const DOMAIN_ERRORS: [ErrorClass, ApiError['statusCode'], string][] = [
   [NotAMemberError, 403, 'not_a_member'],
   [CompanyUnavailableError, 403, 'company_unavailable'],
+  [CompanyUnpaidError, 403, 'company_unpaid'],
+  [CompanyNotFoundError, 404, 'tenant_not_found'],
+  [SubscriptionExistsError, 409, 'subscription_exists'],
+  [PlanUnavailableError, 422, 'plan_unavailable'],
   [TemplateAdminRequiredError, 403, 'admin_required'],
   [MovementNotAllowedError, 403, 'admin_required'],
   [InventoryNotFoundError, 404, 'inventory_item_not_found'],
@@ -184,6 +189,9 @@ const CONSTRAINT_CONFLICTS: Record<string, string> = {
   memberships_one_owner_key: 'owner_exists',
   // Two plans with the same name (any case): the index is the only check, so it holds under races too.
   platform_plans_name_key: 'plan_name_taken',
+  // A plan companies are on, deleted between the count and the delete: the foreign key says no.
+  company_subscriptions_plan_id_platform_plans_id_fk: 'plan_in_use',
+  subscription_charges_plan_id_platform_plans_id_fk: 'plan_in_use',
 }
 // 23505 unique, 23503 foreign key, 23514 check.
 const CONFLICT_CODES = new Set(['23505', '23503', '23514'])

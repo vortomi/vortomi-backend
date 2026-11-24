@@ -35,15 +35,10 @@ export interface PlanView extends PlanInput {
 /** A plan as a company sees it: no count of companies, no switch. */
 export type CompanyPlanView = Omit<PlanView, 'companies' | 'isActive'>
 
-/**
- * How many companies are on each plan. Companies are not linked to these plans yet (they still use
- * the fixed internal/basic/team list), so for now none; when subscriptions exist, they answer here.
- */
+/** How many companies are on each plan (their subscriptions answer: SubscriptionCounts). */
 export interface PlanSubscribers {
   count(planIds: string[]): Promise<Map<string, number>>
 }
-
-export const noSubscribersYet: PlanSubscribers = { count: async () => new Map() }
 
 export class PlanNotFoundError extends Error {
   constructor() {
@@ -104,7 +99,7 @@ const toView = (row: Row, companies: number): PlanView => ({
 export class PlatformPlanService {
   constructor(
     private readonly db: Database,
-    private readonly subscribers: PlanSubscribers = noSubscribersYet,
+    private readonly subscribers: PlanSubscribers,
   ) {}
 
   /** Oldest first, so the cards keep their place. */

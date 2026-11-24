@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { LOG_REDACT_PATHS, buildApp, redactUrl } from './app.ts'
 import { loadEnv, signupSettings } from './config/env.ts'
+import { setBillingEnforcement } from './modules/subscriptions/billing-enforcement.ts'
 import { createDatabase } from './db/client.ts'
 import { SupabaseTokenVerifier } from './modules/access/supabase-token-verifier.ts'
 import { ChannelCredentials } from './modules/channels/channel-credentials.ts'
@@ -54,6 +55,7 @@ const MEDIA_EVENTS = new Set<WhatsAppEvent['kind']>(['inbound_message', 'owner_e
 async function main(): Promise<void> {
   if (existsSync('.env')) process.loadEnvFile('.env')
   const env = loadEnv()
+  setBillingEnforcement(env.BILLING_ENFORCEMENT === 'on')
   const database = createDatabase(env.DATABASE_URL, env.DATABASE_POOL_MAX)
   const { db } = database
 

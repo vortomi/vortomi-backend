@@ -17,6 +17,8 @@ import { PlatformPaymentMethodService } from './platform-payment-methods.ts'
 import { platformPaymentMethodRoutes } from './platform-payment-methods.routes.ts'
 import { PlatformPlanService } from './platform-plans.ts'
 import { platformPlanRoutes } from './platform-plans.routes.ts'
+import { SubscriptionCounts, SubscriptionService } from '../subscriptions/subscription-service.ts'
+import { platformSubscriptionRoutes } from '../subscriptions/subscription.routes.ts'
 import { PlatformExchangeRateService } from './platform-exchange-rates.ts'
 import { platformExchangeRateRoutes } from './platform-exchange-rates.routes.ts'
 import type { BcvRateService } from '../exchange-rates/bcv-rate.service.ts'
@@ -74,7 +76,9 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
   // Where companies pay Vortomi (Suscripciones → Métodos de pago): same guard.
   void app.register(platformPaymentMethodRoutes, { methods: new PlatformPaymentMethodService(db) })
   // Vortomi's plans (Suscripciones → Planes): same guard.
-  void app.register(platformPlanRoutes, { plans: new PlatformPlanService(db) })
+  void app.register(platformPlanRoutes, { plans: new PlatformPlanService(db, new SubscriptionCounts(db)) })
+  // Each company's subscription and Suscripciones → Cobros (mockup web-37): same guard.
+  void app.register(platformSubscriptionRoutes, { subscriptions: new SubscriptionService(db) })
   // Vortomi's own exchange rate (Ajustes → Tasa de cambio): same guard.
   void app.register(platformExchangeRateRoutes, { rates: new PlatformExchangeRateService(db), bcv })
 

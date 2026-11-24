@@ -85,6 +85,8 @@ export const CONSOLE_ACTIONS = [
   // Mockup web-30: a password link for someone of a company, and a new owner.
   'tenant.password_reset',
   'tenant.owner_changed',
+  // Mockup web-37: a plan assigned to a company.
+  'subscription.plan_assigned',
 ] as const
 export type ConsoleAction = (typeof CONSOLE_ACTIONS)[number]
 
