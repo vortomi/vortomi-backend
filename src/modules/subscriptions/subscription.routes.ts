@@ -9,6 +9,7 @@ import { type SubscriptionPaymentService, reportPaymentInput } from './subscript
 import { type SubscriptionReviewService, approvePaymentInput, receiptFile, rejectPaymentInput, reviewStatusQuery } from './subscription-review-service.ts'
 import { walletBalance, walletMovementsOf } from './wallet.ts'
 import { type ExemptionService, exemptionInput } from './subscription-exemptions.ts'
+import { type SubscriptionSummaryService, summaryQuery } from './subscription-summary-service.ts'
 
 const tenantParams = z.object({ tenantId: z.uuid() })
 const paymentParams = z.object({ paymentId: z.uuid() })
@@ -22,6 +23,7 @@ export interface PlatformSubscriptionRoutesOptions {
   subscriptions: SubscriptionService
   review: SubscriptionReviewService
   exemptions: ExemptionService
+  summary: SubscriptionSummaryService
 }
 
 /** A file of ours: inline when the browser can show it, downloaded otherwise; never anything else. */
@@ -39,8 +41,19 @@ function sendFile(reply: FastifyReply, bytes: Uint8Array | Buffer, mimeType: str
  * The console's side (mockup web-37): Suscripciones → Cobros, and a company's subscription on its
  * page, where a plan is assigned. Registered inside platformRoutes: its guard runs first.
  */
-export const platformSubscriptionRoutes: FastifyPluginCallback<PlatformSubscriptionRoutesOptions> = (app, { subscriptions, review, exemptions }, done) => {
+export const platformSubscriptionRoutes: FastifyPluginCallback<PlatformSubscriptionRoutesOptions> = (app, { subscriptions, review, exemptions, summary }, done) => {
   app.get('/subscriptions', async () => ({ items: await subscriptions.list() }))
+  // Suscripciones → Resumen (mockup web-51): income, what is owed, how companies pay; and the file.
+  app.get('/subscriptions/summary', async (request) => summary.summary(parseInput(summaryQuery, request.query).period))
+  app.get('/subscriptions/income.csv', async (request, reply) => {
+    const { period } = parseInput(summaryQuery, request.query)
+    return reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="ingresos-vortomi-${period}.csv"`)
+      .header('Cache-Control', 'private, no-store')
+      .send(await summary.incomeCsv(period))
+  })
+  app.get('/tenants/:tenantId/subscription/history', async (request) => summary.history(parseInput(tenantParams, request.params).tenantId))
   app.get('/tenants/:tenantId/subscription', async (request) => ({
     subscription: await subscriptions.view(parseInput(tenantParams, request.params).tenantId),
   }))

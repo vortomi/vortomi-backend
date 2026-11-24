@@ -102,6 +102,12 @@ export interface SubscriptionRow {
   state: BillingState | 'none'
   /** Its exemption while it lasts. */
   exemption: { reason: ExemptionReason; endsOn: string | null } | null
+  /** What its approved payments add up to (what really arrived), and how many (mockup web-51). */
+  paidTotalCents: number
+  paymentsCount: number
+  /** Its latest approved payment: the day it was paid and what arrived. */
+  lastPaidOn: string | null
+  lastPaidCents: number | null
 }
 
 const CHARGE_COLUMNS = {
@@ -323,6 +329,9 @@ export class SubscriptionService {
         reviewCents: sql<number>`coalesce((select p.amount_usd_cents from subscription_payments p where p.company_id = ${tenants.id} and p.status = 'in_review'), 0)::int`,
         exemptReason: companyExemptions.reason,
         exemptEndsOn: companyExemptions.endsOn,
+        paidTotalCents: sql<number>`coalesce((select sum(coalesce(p.received_usd_cents, p.amount_usd_cents)) from subscription_payments p where p.company_id = ${tenants.id} and p.status = 'approved'), 0)::int`,
+        paymentsCount: sql<number>`(select count(*) from subscription_payments p where p.company_id = ${tenants.id} and p.status = 'approved')::int`,
+        lastPaid: sql<{ paidOn: string; cents: number } | null>`(select json_build_object('paidOn', p.paid_on, 'cents', coalesce(p.received_usd_cents, p.amount_usd_cents)) from subscription_payments p where p.company_id = ${tenants.id} and p.status = 'approved' order by p.paid_on desc, p.submitted_at desc limit 1)`,
       })
       .from(tenants)
       .leftJoin(companySubscriptions, eq(companySubscriptions.tenantId, tenants.id))
@@ -346,6 +355,10 @@ export class SubscriptionService {
         owedCents: r.owedCents,
         state: exempt ? 'exempt' : facts ? billingState(facts, today) : 'none',
         exemption: exempt ? exemption : null,
+        paidTotalCents: r.paidTotalCents,
+        paymentsCount: r.paymentsCount,
+        lastPaidOn: r.lastPaid?.paidOn ?? null,
+        lastPaidCents: r.lastPaid?.cents ?? null,
       }
     })
   }
