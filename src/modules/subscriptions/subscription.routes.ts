@@ -8,6 +8,7 @@ import { type SubscriptionService, assignPlanInput, choosePlanInput } from './su
 import { type SubscriptionPaymentService, reportPaymentInput } from './subscription-payment-service.ts'
 import { type SubscriptionReviewService, approvePaymentInput, receiptFile, rejectPaymentInput, reviewStatusQuery } from './subscription-review-service.ts'
 import { walletBalance, walletMovementsOf } from './wallet.ts'
+import { type ExemptionService, exemptionInput } from './subscription-exemptions.ts'
 
 const tenantParams = z.object({ tenantId: z.uuid() })
 const paymentParams = z.object({ paymentId: z.uuid() })
@@ -20,6 +21,7 @@ const INLINE_PROOF_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'ap
 export interface PlatformSubscriptionRoutesOptions {
   subscriptions: SubscriptionService
   review: SubscriptionReviewService
+  exemptions: ExemptionService
 }
 
 /** A file of ours: inline when the browser can show it, downloaded otherwise; never anything else. */
@@ -37,7 +39,7 @@ function sendFile(reply: FastifyReply, bytes: Uint8Array | Buffer, mimeType: str
  * The console's side (mockup web-37): Suscripciones → Cobros, and a company's subscription on its
  * page, where a plan is assigned. Registered inside platformRoutes: its guard runs first.
  */
-export const platformSubscriptionRoutes: FastifyPluginCallback<PlatformSubscriptionRoutesOptions> = (app, { subscriptions, review }, done) => {
+export const platformSubscriptionRoutes: FastifyPluginCallback<PlatformSubscriptionRoutesOptions> = (app, { subscriptions, review, exemptions }, done) => {
   app.get('/subscriptions', async () => ({ items: await subscriptions.list() }))
   app.get('/tenants/:tenantId/subscription', async (request) => ({
     subscription: await subscriptions.view(parseInput(tenantParams, request.params).tenantId),
@@ -47,6 +49,20 @@ export const platformSubscriptionRoutes: FastifyPluginCallback<PlatformSubscript
     const { planId } = parseInput(assignPlanInput, request.body)
     return reply.code(201).send({ subscription: await subscriptions.assign(tenantId, planId, identityOf(request).userId) })
   })
+
+  // «Exonerar del pago» (mockup web-49): granted, changed, and ended in 7 days. Each one is a route
+  // of its own, so «Actividad en la consola» names what was done.
+  app.get('/tenants/:tenantId/exemption', async (request) => ({ exemption: await exemptions.view(parseInput(tenantParams, request.params).tenantId) }))
+  app.post('/tenants/:tenantId/exemption', async (request, reply) => {
+    const { tenantId } = parseInput(tenantParams, request.params)
+    const input = parseInput(exemptionInput, request.body)
+    return reply.code(201).send({ exemption: await exemptions.grant(tenantId, input, identityOf(request).userId) })
+  })
+  app.put('/tenants/:tenantId/exemption', async (request) => {
+    const { tenantId } = parseInput(tenantParams, request.params)
+    return { exemption: await exemptions.change(tenantId, parseInput(exemptionInput, request.body)) }
+  })
+  app.delete('/tenants/:tenantId/exemption', async (request) => ({ exemption: await exemptions.remove(parseInput(tenantParams, request.params).tenantId) }))
 
   // Suscripciones → Pagos (mockup web-41): the payments companies report, reviewed here.
   app.get('/subscription-payments', async (request) => ({ items: await review.list(parseInput(reviewStatusQuery, request.query).status) }))

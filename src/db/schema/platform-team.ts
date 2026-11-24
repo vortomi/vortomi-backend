@@ -89,6 +89,10 @@ export const CONSOLE_ACTIONS = [
   'subscription.plan_assigned',
   'subscription.payment_approved',
   'subscription.payment_rejected',
+  // Mockup web-49: a company exempted from paying, the exemption changed, and ended.
+  'subscription.exempted',
+  'subscription.exemption_changed',
+  'subscription.exemption_removed',
 ] as const
 export type ConsoleAction = (typeof CONSOLE_ACTIONS)[number]
 

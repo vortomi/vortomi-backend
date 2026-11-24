@@ -14,8 +14,9 @@ export const SOON_DAYS = 7
 /**
  * 'in_review': a payment in review covers the whole debt; the company works as if it owed nothing
  * until the console decides (decided 24/11/2026). Rejected, the dates count again.
+ * 'exempt': the console exempted it from paying (mockup web-49); nothing is charged meanwhile.
  */
-export type BillingState = 'awaiting_first_payment' | 'active' | 'due_soon' | 'grace' | 'suspended' | 'in_review'
+export type BillingState = 'awaiting_first_payment' | 'active' | 'due_soon' | 'grace' | 'suspended' | 'in_review' | 'exempt'
 
 const DAY_MS = 86_400_000
 
@@ -43,9 +44,28 @@ export interface BillingFacts {
   owedCents: number
   /** What the payment in review would pay, in dollar cents (0 without one). */
   reviewCents?: number
+  /** The company's latest exemption from paying, if it ever had one. */
+  exemption?: Exemption | null
 }
 
+/** An exemption from paying: its last exempt day, or null for one with no end. */
+export interface Exemption {
+  endsOn: string | null
+}
+
+/** Whether an exemption covers today. */
+export const exemptOn = (exemption: Exemption | null | undefined, today: string): boolean =>
+  !!exemption && (exemption.endsOn === null || today <= exemption.endsOn)
+
+/**
+ * The due day once an exemption is over: the day after its last one, unless the company had already
+ * paid beyond it (decided 24/11/2026, mockup web-49).
+ */
+export const dueAfterExemption = (nextDueOn: string, exemption: Exemption | null | undefined): string =>
+  exemption?.endsOn && nextDueOn <= exemption.endsOn ? addDays(exemption.endsOn, 1) : nextDueOn
+
 export function billingState(facts: BillingFacts, today: string): BillingState {
+  if (exemptOn(facts.exemption, today)) return 'exempt'
   // Nothing owed yet: the next charge is made on its due day, but the reminder starts 7 days before.
   if (facts.owedCents <= 0) return facts.billingDay !== null && daysBetween(today, facts.nextDueOn) < SOON_DAYS ? 'due_soon' : 'active'
   if ((facts.reviewCents ?? 0) >= facts.owedCents) return 'in_review'

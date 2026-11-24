@@ -1,6 +1,7 @@
 import { CompanyUnavailableError, CompanyUnpaidError, NotAMemberError } from '../modules/access/member-scope.ts'
 import { CompanyNotFoundError, PlanUnavailableError, SubscriptionExistsError } from '../modules/subscriptions/subscription-service.ts'
 import { PaymentRuleError } from '../modules/subscriptions/subscription-payment-service.ts'
+import { ExemptionRuleError } from '../modules/subscriptions/subscription-exemptions.ts'
 import { PaymentFormError } from '../modules/subscriptions/subscription-payment-forms.ts'
 import { CategoryNotFoundError } from '../modules/inventory/category-service.ts'
 import {
@@ -207,6 +208,7 @@ export function toApiError(error: unknown): ApiError | null {
   // A payment to Vortomi that breaks a rule says which (documentations/18 §5).
   if (error instanceof PaymentRuleError) return new ApiError(error.status, error.code, error.message)
   if (error instanceof PaymentFormError) return new ApiError(422, error.code, error.message)
+  if (error instanceof ExemptionRuleError) return new ApiError(error.status, error.code, error.message)
   for (const [type, status, code] of DOMAIN_ERRORS) {
     if (error instanceof type) return new ApiError(status, code, error.message)
   }

@@ -29,6 +29,9 @@ const ACTIONS: Record<string, Resolve> = {
   'POST /tenants/:tenantId/subscription': 'subscription.plan_assigned',
   'POST /tenants/:tenantId/subscription-payments/:paymentId/approve': 'subscription.payment_approved',
   'POST /tenants/:tenantId/subscription-payments/:paymentId/reject': 'subscription.payment_rejected',
+  'POST /tenants/:tenantId/exemption': 'subscription.exempted',
+  'PUT /tenants/:tenantId/exemption': 'subscription.exemption_changed',
+  'DELETE /tenants/:tenantId/exemption': 'subscription.exemption_removed',
   'POST /business-types': 'business_type.created',
   'POST /business-types/reclassify': 'business_type.reclassified',
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, addMonthsOn, billingState, caracasToday, chargeFor, suspendsOn, trialEndsOn, trialOver } from '../../src/modules/subscriptions/subscription-rules.ts'
+import { addDays, addMonthsOn, billingState, caracasToday, chargeFor, dueAfterExemption, exemptOn, suspendsOn, trialEndsOn, trialOver } from '../../src/modules/subscriptions/subscription-rules.ts'
 
 const first = (nextDueOn: string) => ({ billingDay: null, nextDueOn, owedCents: 7900 })
 const monthly = (nextDueOn: string, owedCents = 7900) => ({ billingDay: 5, nextDueOn, owedCents })
@@ -62,5 +62,25 @@ describe('the dates of a subscription', () => {
     expect(chargeFor(7900, discounts, 4)).toEqual({ discountPercent: 5, amountCents: 30020 })
     expect(chargeFor(7900, discounts, 6)).toEqual({ discountPercent: 10, amountCents: 42660 })
     expect(chargeFor(7900, discounts, 12)).toEqual({ discountPercent: 20, amountCents: 75840 })
+  })
+})
+
+describe('an exemption from paying (mockup web-49)', () => {
+  it('covers its last day and nothing after; with no end, always', () => {
+    expect(exemptOn({ endsOn: '2027-02-28' }, '2027-02-28')).toBe(true)
+    expect(exemptOn({ endsOn: '2027-02-28' }, '2027-03-01')).toBe(false)
+    expect(exemptOn({ endsOn: null }, '2030-01-01')).toBe(true)
+    expect(exemptOn(null, '2027-01-01')).toBe(false)
+  })
+
+  it('an exempt company is never in grace or suspended, whatever it owes', () => {
+    expect(billingState({ ...monthly('2026-12-05'), exemption: { endsOn: null } }, '2027-06-01')).toBe('exempt')
+  })
+
+  it('once over, it is due the day after its last exempt day, unless it had paid beyond', () => {
+    expect(dueAfterExemption('2026-12-05', { endsOn: '2027-02-28' })).toBe('2027-03-01')
+    expect(dueAfterExemption('2027-04-05', { endsOn: '2027-02-28' })).toBe('2027-04-05')
+    expect(dueAfterExemption('2026-12-05', { endsOn: null })).toBe('2026-12-05')
+    expect(dueAfterExemption('2026-12-05', null)).toBe('2026-12-05')
   })
 })

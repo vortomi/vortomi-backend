@@ -561,6 +561,13 @@
       "when": 1795541312423,
       "tag": "0079_subscription_review",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1795546868091,
+      "tag": "0080_company_exemptions",
+      "breakpoints": true
     }
   ]
 }
