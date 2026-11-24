@@ -37,6 +37,11 @@ describe('the dates of a subscription', () => {
     expect(trialOver('2026-11-30', '2026-12-01')).toBe(true)
   })
 
+  it('a payment in review of the whole debt keeps it working; a partial one does not', () => {
+    expect(billingState({ ...monthly('2026-12-05'), reviewCents: 7900 }, '2026-12-20')).toBe('in_review')
+    expect(billingState({ ...monthly('2026-12-05'), reviewCents: 5000 }, '2026-12-08')).toBe('suspended')
+  })
+
   it('reads today in Caracas', () => {
     expect(caracasToday(new Date('2026-12-02T03:30:00Z'))).toBe('2026-12-01')
     expect(caracasToday(new Date('2026-12-02T04:30:00Z'))).toBe('2026-12-02')

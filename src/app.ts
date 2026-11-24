@@ -1,3 +1,4 @@
+import type { PaymentProofStore } from './modules/subscriptions/payment-proof-store.ts'
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify'
 import { sql } from 'drizzle-orm'
 import type { Database } from './db/client.ts'
@@ -48,6 +49,8 @@ export interface AppDependencies {
   appWatch?: Pick<AppSubscriptionWatch, 'wake'>
   /** Where the chat's files are kept (Cloudinary, Supabase Storage); unset: only on the phone. */
   mediaStores?: MediaStores
+  /** Where the receipts of the payments to Vortomi are kept (private); unset: they cannot be sent. */
+  paymentProofs?: PaymentProofStore | null
 }
 
 /** Secrets and signatures must never reach the logs. */
@@ -111,6 +114,7 @@ export async function buildApp(deps: AppDependencies, logger: FastifyServerOptio
     ...(deps.authenticatorFactors ? { authenticatorFactors: deps.authenticatorFactors } : {}),
     ...(deps.staffAccounts ? { staffAccounts: deps.staffAccounts } : {}),
     mediaStores: deps.mediaStores ?? { cloudinary: null, supabase: null },
+    paymentProofs: deps.paymentProofs ?? null,
     resetLinks,
   })
 

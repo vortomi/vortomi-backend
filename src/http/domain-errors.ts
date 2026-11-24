@@ -1,5 +1,7 @@
 import { CompanyUnavailableError, CompanyUnpaidError, NotAMemberError } from '../modules/access/member-scope.ts'
 import { CompanyNotFoundError, PlanUnavailableError, SubscriptionExistsError } from '../modules/subscriptions/subscription-service.ts'
+import { PaymentRuleError } from '../modules/subscriptions/subscription-payment-service.ts'
+import { PaymentFormError } from '../modules/subscriptions/subscription-payment-forms.ts'
 import { CategoryNotFoundError } from '../modules/inventory/category-service.ts'
 import {
   FractionalStockError,
@@ -192,6 +194,8 @@ const CONSTRAINT_CONFLICTS: Record<string, string> = {
   // A plan companies are on, deleted between the count and the delete: the foreign key says no.
   company_subscriptions_plan_id_platform_plans_id_fk: 'plan_in_use',
   subscription_charges_plan_id_platform_plans_id_fk: 'plan_in_use',
+  subscription_payments_one_in_review: 'payment_in_review',
+  subscription_payments_reference_unique: 'subscription_reference_used',
 }
 // 23505 unique, 23503 foreign key, 23514 check.
 const CONFLICT_CODES = new Set(['23505', '23503', '23514'])
@@ -200,6 +204,9 @@ export function toApiError(error: unknown): ApiError | null {
   if (error instanceof ApiError) return error
   // Why Meta refused is the code; Meta's own message goes to the server log only.
   if (error instanceof MetaRefusedError) return new ApiError(422, error.code, error.message, error.detail)
+  // A payment to Vortomi that breaks a rule says which (documentations/18 §5).
+  if (error instanceof PaymentRuleError) return new ApiError(error.status, error.code, error.message)
+  if (error instanceof PaymentFormError) return new ApiError(422, error.code, error.message)
   for (const [type, status, code] of DOMAIN_ERRORS) {
     if (error instanceof type) return new ApiError(status, code, error.message)
   }

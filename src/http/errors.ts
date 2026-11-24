@@ -6,7 +6,7 @@ import type { FastifyError, FastifyInstance } from 'fastify'
  */
 export class ApiError extends Error {
   constructor(
-    readonly statusCode: 400 | 401 | 403 | 404 | 409 | 410 | 422,
+    readonly statusCode: 400 | 401 | 403 | 404 | 409 | 410 | 422 | 503,
     readonly code: string,
     message = code,
     /** Why an outside service refused (its own words, no secrets): logged for us, never answered. */

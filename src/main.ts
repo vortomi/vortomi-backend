@@ -36,6 +36,7 @@ import { CloudinaryStore, parseCloudinaryUrl } from './modules/chat-media/cloudi
 import { MediaArchiver, type MediaStores } from './modules/chat-media/media-archiver.ts'
 import { AppSubscriptionWatch } from './modules/platform/app-subscription-watch.ts'
 import { SupabaseStore } from './modules/chat-media/supabase-store.ts'
+import { PAYMENT_PROOFS_BUCKET, supabaseProofStore } from './modules/subscriptions/payment-proof-store.ts'
 import { SupabaseAccountPasswords } from './modules/password-reset/account-passwords.ts'
 import type { WhatsAppEvent } from './modules/whatsapp/events.ts'
 
@@ -123,6 +124,10 @@ async function main(): Promise<void> {
       bcv,
       catalogs,
       mediaStores,
+      // Receipts of the payments to Vortomi: their own private bucket, same secret key as the chat's documents.
+      paymentProofs: env.SUPABASE_SECRET_KEY
+        ? supabaseProofStore(new SupabaseStore(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, fetch, PAYMENT_PROOFS_BUCKET))
+        : null,
       appWatch,
       // Password links (mockup web-30): Supabase Auth admin API, with the same secret key as Storage.
       accountPasswords: env.SUPABASE_SECRET_KEY ? new SupabaseAccountPasswords(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY) : null,

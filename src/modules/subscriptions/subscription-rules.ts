@@ -11,7 +11,11 @@ export const GRACE_DAYS = 2
 /** A charge due within these days shows as «Por vencer». */
 export const SOON_DAYS = 7
 
-export type BillingState = 'awaiting_first_payment' | 'active' | 'due_soon' | 'grace' | 'suspended'
+/**
+ * 'in_review': a payment in review covers the whole debt; the company works as if it owed nothing
+ * until the console decides (decided 24/11/2026). Rejected, the dates count again.
+ */
+export type BillingState = 'awaiting_first_payment' | 'active' | 'due_soon' | 'grace' | 'suspended' | 'in_review'
 
 const DAY_MS = 86_400_000
 
@@ -37,10 +41,13 @@ export interface BillingFacts {
   nextDueOn: string
   /** What is still owed on the charges due so far and the one coming. */
   owedCents: number
+  /** What the payment in review would pay, in dollar cents (0 without one). */
+  reviewCents?: number
 }
 
 export function billingState(facts: BillingFacts, today: string): BillingState {
   if (facts.owedCents <= 0) return 'active'
+  if ((facts.reviewCents ?? 0) >= facts.owedCents) return 'in_review'
   if (today >= suspendsOn(facts.nextDueOn)) return 'suspended'
   if (facts.billingDay === null) return 'awaiting_first_payment'
   if (today > facts.nextDueOn) return 'grace'

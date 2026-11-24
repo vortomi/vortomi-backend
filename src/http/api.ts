@@ -68,6 +68,8 @@ import { paymentMethodRoutes } from '../modules/payment-methods/payment-methods.
 import { companyPlanRoutes } from '../modules/platform/company-plans.routes.ts'
 import { SubscriptionCounts, SubscriptionService } from '../modules/subscriptions/subscription-service.ts'
 import { companySubscriptionRoutes } from '../modules/subscriptions/subscription.routes.ts'
+import { SubscriptionPaymentService } from '../modules/subscriptions/subscription-payment-service.ts'
+import type { PaymentProofStore } from '../modules/subscriptions/payment-proof-store.ts'
 import { PlatformPlanService } from '../modules/platform/platform-plans.ts'
 import { orderRoutes } from '../modules/orders/orders.routes.ts'
 import { ReceiptSettingsService } from '../modules/sale-receipts/receipt-settings-service.ts'
@@ -97,6 +99,7 @@ export interface ApiOptions {
   authenticatorFactors?: AuthenticatorFactors
   staffAccounts?: StaffAccounts
   mediaStores: MediaStores
+  paymentProofs: PaymentProofStore | null
   resetLinks: PasswordResetLinks
 }
 
@@ -117,7 +120,7 @@ export const publicApiRoutes: FastifyPluginAsync<{ db: Database; resetLinks: Pas
  * The panel's API (/api). Everything in here requires a verified Supabase session;
  * company data is only reached through inCompany() (membership + withTenant).
  */
-export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent, signup, authenticatorFactors, staffAccounts, mediaStores, resetLinks }) => {
+export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verifier, credentials, sender, templateRegistry, wabaDirectory, feed, bcv, catalogs, agent, signup, authenticatorFactors, staffAccounts, mediaStores, paymentProofs, resetLinks }) => {
   installErrorHandler(app, toApiError)
   app.decorateRequest('identity', null)
   app.addHook('onRequest', authenticate(verifier))
@@ -175,7 +178,12 @@ export const apiRoutes: FastifyPluginAsync<ApiOptions> = async (app, { db, verif
   // Vortomi's active plans, for the company's Suscripción → Planes (its admins only).
   await app.register(companyPlanRoutes, { prefix: COMPANY, db, plans: new PlatformPlanService(db, new SubscriptionCounts(db)) })
   // The company's own subscription: open even when it owes (mockup web-37).
-  await app.register(companySubscriptionRoutes, { prefix: COMPANY, db, subscriptions: new SubscriptionService(db) })
+  await app.register(companySubscriptionRoutes, {
+    prefix: COMPANY,
+    db,
+    subscriptions: new SubscriptionService(db),
+    payments: new SubscriptionPaymentService(db, paymentProofs),
+  })
   const orders = new OrderService()
   const botDelivery = new BotDelivery(db, credentials, sender)
   const confirmation = new OrderConfirmation(orders, botDelivery)

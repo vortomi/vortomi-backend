@@ -1,7 +1,8 @@
 import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database, Executor } from '../../db/client.ts'
-import { companySubscriptions, companyTrials, platformExchangeRates, platformPlans, subscriptionCharges, tenants } from '../../db/schema/index.ts'
+import { companySubscriptions, companyTrials, platformExchangeRates, platformPlans, subscriptionCharges, subscriptionPayments, tenants } from '../../db/schema/index.ts'
+import { type PaymentView, paymentInReview } from './subscription-payment-service.ts'
 import type { ChargeDiscounts, SUBSCRIPTION_ORIGINS } from '../../db/schema/subscriptions.ts'
 import type { PlanSubscribers } from '../platform/platform-plans.ts'
 import { billingEnforced } from './billing-enforcement.ts'
@@ -68,6 +69,8 @@ export interface SubscriptionView {
   charge: ChargeView | null
   /** Vortomi's exchange rate for the bolívares, or null while it has none. */
   rate: { bsPerUsd: string; effectiveDate: string } | null
+  /** The payment the console is reviewing, if any. */
+  inReview: PaymentView | null
 }
 
 /** What the company's Suscripción reads: its subscription, or its trial while it has none. */
@@ -118,7 +121,11 @@ export async function billingFactsOf(executor: Executor, tenantId: string): Prom
     .select({ cents: sql<number>`coalesce(sum(${subscriptionCharges.amountCents} - ${subscriptionCharges.paidCents}), 0)::int` })
     .from(subscriptionCharges)
     .where(eq(subscriptionCharges.tenantId, tenantId))
-  return { ...subscription, owedCents: owed?.cents ?? 0 }
+  const [review] = await executor
+    .select({ cents: subscriptionPayments.amountUsdCents })
+    .from(subscriptionPayments)
+    .where(and(eq(subscriptionPayments.tenantId, tenantId), eq(subscriptionPayments.status, 'in_review')))
+  return { ...subscription, owedCents: owed?.cents ?? 0, reviewCents: review?.cents ?? 0 }
 }
 
 /**
@@ -242,6 +249,7 @@ export class SubscriptionService {
       owedCents: facts.owedCents,
       charge: charge ?? null,
       rate,
+      inReview: await paymentInReview(this.db, tenantId),
     }
   }
 
@@ -276,6 +284,7 @@ export class SubscriptionService {
         billingDay: companySubscriptions.billingDay,
         nextDueOn: companySubscriptions.nextDueOn,
         owedCents: sql<number>`coalesce((select sum(c.amount_cents - c.paid_cents) from subscription_charges c where c.company_id = ${tenants.id}), 0)::int`,
+        reviewCents: sql<number>`coalesce((select p.amount_usd_cents from subscription_payments p where p.company_id = ${tenants.id} and p.status = 'in_review'), 0)::int`,
       })
       .from(tenants)
       .leftJoin(companySubscriptions, eq(companySubscriptions.tenantId, tenants.id))
@@ -291,7 +300,7 @@ export class SubscriptionService {
       nextDueOn: r.nextDueOn,
       suspendsOn: r.nextDueOn ? suspendsOn(r.nextDueOn) : null,
       owedCents: r.owedCents,
-      state: r.nextDueOn ? billingState({ billingDay: r.billingDay, nextDueOn: r.nextDueOn, owedCents: r.owedCents }, today) : 'none',
+      state: r.nextDueOn ? billingState({ billingDay: r.billingDay, nextDueOn: r.nextDueOn, owedCents: r.owedCents, reviewCents: r.reviewCents }, today) : 'none',
     }))
   }
 }
