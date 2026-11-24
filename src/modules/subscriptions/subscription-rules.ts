@@ -46,7 +46,8 @@ export interface BillingFacts {
 }
 
 export function billingState(facts: BillingFacts, today: string): BillingState {
-  if (facts.owedCents <= 0) return 'active'
+  // Nothing owed yet: the next charge is made on its due day, but the reminder starts 7 days before.
+  if (facts.owedCents <= 0) return facts.billingDay !== null && daysBetween(today, facts.nextDueOn) < SOON_DAYS ? 'due_soon' : 'active'
   if ((facts.reviewCents ?? 0) >= facts.owedCents) return 'in_review'
   if (today >= suspendsOn(facts.nextDueOn)) return 'suspended'
   if (facts.billingDay === null) return 'awaiting_first_payment'
@@ -70,3 +71,19 @@ export function chargeFor(basePriceCents: number, discounts: Record<'1' | '3' | 
   const amountCents = Math.round((basePriceCents * months * (100 - discountPercent)) / 100)
   return { discountPercent, amountCents }
 }
+
+/**
+ * The due day `months` after `day`, on the billing day: a billing day the month lacks falls on its
+ * last day (31 → 28 in February), and comes back to 31 when the month has it (documentations/18 §2).
+ */
+export function addMonthsOn(day: string, months: number, billingDay: number): string {
+  const year = Number(day.slice(0, 4))
+  const month = Number(day.slice(5, 7)) - 1 + months
+  const first = new Date(Date.UTC(year, month, 1))
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate()
+  first.setUTCDate(Math.min(billingDay, last))
+  return first.toISOString().slice(0, 10)
+}
+
+/** The day of the month a date falls on: the billing day set by a first payment. */
+export const dayOfMonth = (day: string): number => Number(day.slice(8, 10))

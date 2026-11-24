@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { Database, Executor } from '../../db/client.ts'
 import { companySubscriptions, companyTrials, platformExchangeRates, platformPlans, subscriptionCharges, subscriptionPayments, tenants } from '../../db/schema/index.ts'
 import { type PaymentView, paymentInReview } from './subscription-payment-service.ts'
+import { walletBalance } from './wallet.ts'
 import type { ChargeDiscounts, SUBSCRIPTION_ORIGINS } from '../../db/schema/subscriptions.ts'
 import type { PlanSubscribers } from '../platform/platform-plans.ts'
 import { billingEnforced } from './billing-enforcement.ts'
@@ -71,6 +72,8 @@ export interface SubscriptionView {
   rate: { bsPerUsd: string; effectiveDate: string } | null
   /** The payment the console is reviewing, if any. */
   inReview: PaymentView | null
+  /** The balance in favour, in dollar cents: taken from the next charge when it is made. */
+  walletCents: number
 }
 
 /** What the company's Suscripción reads: its subscription, or its trial while it has none. */
@@ -250,6 +253,7 @@ export class SubscriptionService {
       charge: charge ?? null,
       rate,
       inReview: await paymentInReview(this.db, tenantId),
+      walletCents: await walletBalance(this.db, tenantId),
     }
   }
 

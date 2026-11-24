@@ -37,12 +37,15 @@ import { MediaArchiver, type MediaStores } from './modules/chat-media/media-arch
 import { AppSubscriptionWatch } from './modules/platform/app-subscription-watch.ts'
 import { SupabaseStore } from './modules/chat-media/supabase-store.ts'
 import { PAYMENT_PROOFS_BUCKET, supabaseProofStore } from './modules/subscriptions/payment-proof-store.ts'
+import { SubscriptionBillingJob } from './modules/subscriptions/subscription-billing-job.ts'
 import { SupabaseAccountPasswords } from './modules/password-reset/account-passwords.ts'
 import type { WhatsAppEvent } from './modules/whatsapp/events.ts'
 
 const SWEEP_INTERVAL_MS = 60_000
 /** How often every number's apps are read from Meta (mockup web-31). */
 const APP_WATCH_INTERVAL_MS = 15 * 60_000
+/** How often the monthly charges that fell due are looked for. */
+const BILLING_INTERVAL_MS = 15 * 60_000
 const WEBHOOK_KEEP_MS = 30 * 24 * 60 * 60_000
 /** The agent waits this long after a customer message: several quick messages get one answer. */
 const AGENT_DEBOUNCE_MS = 4_000
@@ -216,6 +219,12 @@ async function main(): Promise<void> {
   // A foreign app on a number is found within minutes of the start and of every change.
   appWatch.run()
   const appWatchTimer = setInterval(() => appWatch.run(), APP_WATCH_INTERVAL_MS)
+  // Each month's charge is made on its due day (documentations/18): looked at on start and every
+  // 15 minutes; a run that finds nothing due does nothing.
+  const billing = new SubscriptionBillingJob(db, app.log)
+  const runBilling = () => void billing.run().catch((error: unknown) => app.log.error({ err: error }, 'Subscription billing run failed'))
+  runBilling()
+  const billingTimer = setInterval(runBilling, BILLING_INTERVAL_MS)
 
   let shuttingDown = false
   const shutdown = async (signal: string) => {
@@ -225,6 +234,7 @@ async function main(): Promise<void> {
     clearInterval(sweepTimer)
     clearInterval(archiveTimer)
     clearInterval(appWatchTimer)
+    clearInterval(billingTimer)
     await stopFeed()
     await stopBcv()
     await app.close()

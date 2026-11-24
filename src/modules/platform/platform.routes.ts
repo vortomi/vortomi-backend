@@ -19,6 +19,8 @@ import { PlatformPlanService } from './platform-plans.ts'
 import { platformPlanRoutes } from './platform-plans.routes.ts'
 import { SubscriptionCounts, SubscriptionService } from '../subscriptions/subscription-service.ts'
 import { platformSubscriptionRoutes } from '../subscriptions/subscription.routes.ts'
+import { SubscriptionReviewService } from '../subscriptions/subscription-review-service.ts'
+import type { PaymentProofStore } from '../subscriptions/payment-proof-store.ts'
 import { PlatformExchangeRateService } from './platform-exchange-rates.ts'
 import { platformExchangeRateRoutes } from './platform-exchange-rates.routes.ts'
 import type { BcvRateService } from '../exchange-rates/bcv-rate.service.ts'
@@ -43,6 +45,8 @@ export interface PlatformRoutesOptions {
   agentCap?: number
   /** The platform's BCV reader, for Vortomi's own rate (Ajustes → Tasa de cambio). */
   bcv: Pick<BcvRateService, 'refresh'>
+  /** The receipts of the payments companies make to Vortomi (Suscripciones → Pagos). */
+  paymentProofs: PaymentProofStore | null
 }
 
 const tenantParams = z.object({ tenantId: z.uuid() })
@@ -57,7 +61,7 @@ const sinceQuery = z.object({ since: z.iso.datetime({ offset: true }) })
  * session signed in with the second factor (documentations/04, D12): this console
  * reaches every company, so a stolen password alone must not open it.
  */
-export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types, channels, team, alerts, resets, agentCap = 1000, bcv }, done) => {
+export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app, { directory, tenants, db, usage, types, channels, team, alerts, resets, agentCap = 1000, bcv, paymentProofs }, done) => {
   app.addHook('preHandler', async (request) => {
     const identity = identityOf(request)
     const account = await directory.findAccount(identity.userId)
@@ -78,7 +82,7 @@ export const platformRoutes: FastifyPluginCallback<PlatformRoutesOptions> = (app
   // Vortomi's plans (Suscripciones → Planes): same guard.
   void app.register(platformPlanRoutes, { plans: new PlatformPlanService(db, new SubscriptionCounts(db)) })
   // Each company's subscription and Suscripciones → Cobros (mockup web-37): same guard.
-  void app.register(platformSubscriptionRoutes, { subscriptions: new SubscriptionService(db) })
+  void app.register(platformSubscriptionRoutes, { subscriptions: new SubscriptionService(db), review: new SubscriptionReviewService(db, paymentProofs) })
   // Vortomi's own exchange rate (Ajustes → Tasa de cambio): same guard.
   void app.register(platformExchangeRateRoutes, { rates: new PlatformExchangeRateService(db), bcv })
 

@@ -87,6 +87,8 @@ export const CONSOLE_ACTIONS = [
   'tenant.owner_changed',
   // Mockup web-37: a plan assigned to a company.
   'subscription.plan_assigned',
+  'subscription.payment_approved',
+  'subscription.payment_rejected',
 ] as const
 export type ConsoleAction = (typeof CONSOLE_ACTIONS)[number]
 

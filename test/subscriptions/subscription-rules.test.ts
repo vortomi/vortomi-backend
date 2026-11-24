@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, billingState, caracasToday, chargeFor, suspendsOn, trialEndsOn, trialOver } from '../../src/modules/subscriptions/subscription-rules.ts'
+import { addDays, addMonthsOn, billingState, caracasToday, chargeFor, suspendsOn, trialEndsOn, trialOver } from '../../src/modules/subscriptions/subscription-rules.ts'
 
 const first = (nextDueOn: string) => ({ billingDay: null, nextDueOn, owedCents: 7900 })
 const monthly = (nextDueOn: string, owedCents = 7900) => ({ billingDay: 5, nextDueOn, owedCents })
@@ -27,7 +27,9 @@ describe('the dates of a subscription', () => {
   })
 
   it('only paying the whole debt avoids it: nothing owed is up to date, any amount owed counts', () => {
-    expect(billingState(monthly('2026-12-05', 0), '2026-12-20')).toBe('active')
+    expect(billingState(monthly('2027-01-05', 0), '2026-12-20')).toBe('active')
+    // Nothing owed yet, the next charge 7 days away or less: the reminder starts before the charge exists.
+    expect(billingState(monthly('2026-12-25', 0), '2026-12-20')).toBe('due_soon')
     expect(billingState(monthly('2026-12-05', 100), '2026-12-08')).toBe('suspended')
   })
 
@@ -40,6 +42,13 @@ describe('the dates of a subscription', () => {
   it('a payment in review of the whole debt keeps it working; a partial one does not', () => {
     expect(billingState({ ...monthly('2026-12-05'), reviewCents: 7900 }, '2026-12-20')).toBe('in_review')
     expect(billingState({ ...monthly('2026-12-05'), reviewCents: 5000 }, '2026-12-08')).toBe('suspended')
+  })
+
+  it('moves a due day by months on the billing day, short months included', () => {
+    expect(addMonthsOn('2026-12-05', 3, 5)).toBe('2027-03-05')
+    expect(addMonthsOn('2027-01-31', 1, 31)).toBe('2027-02-28')
+    expect(addMonthsOn('2027-02-28', 1, 31)).toBe('2027-03-31')
+    expect(addMonthsOn('2026-11-30', 3, 30)).toBe('2027-02-28')
   })
 
   it('reads today in Caracas', () => {

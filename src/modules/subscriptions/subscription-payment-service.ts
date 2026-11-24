@@ -77,7 +77,12 @@ export interface PaymentView {
   rejectionNote: string | null
   submittedAt: Date
   reviewedAt: Date | null
+  /** Vortomi's receipt of it, once approved. */
+  receiptNumber: number | null
 }
+
+/** A payment's receipt number. Spelled out: in a select drizzle leaves column names unqualified, and both tables have an id. */
+export const RECEIPT_NUMBER = sql<number | null>`(select r.number from subscription_receipts r where r.payment_id = subscription_payments.id)`
 
 const VIEW = {
   id: subscriptionPayments.id,
@@ -98,6 +103,7 @@ const VIEW = {
   rejectionNote: subscriptionPayments.rejectionNote,
   submittedAt: subscriptionPayments.submittedAt,
   reviewedAt: subscriptionPayments.reviewedAt,
+  receiptNumber: RECEIPT_NUMBER,
 }
 
 /** The payment in review of a company, if any: it may keep the company out of suspension. */

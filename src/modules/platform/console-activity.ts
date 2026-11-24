@@ -27,6 +27,8 @@ const ACTIONS: Record<string, Resolve> = {
   'POST /tenants/:tenantId/members/:userId/password-reset': 'tenant.password_reset',
   'PUT /tenants/:tenantId/owner': 'tenant.owner_changed',
   'POST /tenants/:tenantId/subscription': 'subscription.plan_assigned',
+  'POST /tenants/:tenantId/subscription-payments/:paymentId/approve': 'subscription.payment_approved',
+  'POST /tenants/:tenantId/subscription-payments/:paymentId/reject': 'subscription.payment_rejected',
   'POST /business-types': 'business_type.created',
   'POST /business-types/reclassify': 'business_type.reclassified',
 }

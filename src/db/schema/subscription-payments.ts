@@ -6,6 +6,10 @@ import { platformPaymentMethods } from './platform-payment-methods.ts'
 import { subscriptionCharges } from './subscriptions.ts'
 import { tenants } from './tenancy.ts'
 
+/** Why the console rejects a payment: the company reads it and corrects the payment. */
+export const PAYMENT_REJECTION_REASONS = ['reference_not_found', 'amount_mismatch', 'unreadable_proof', 'wrong_method', 'other'] as const
+export type PaymentRejectionReason = (typeof PAYMENT_REJECTION_REASONS)[number]
+
 /** In review until the console decides (stage 4); a rejected one is corrected and sent again. */
 export const SUBSCRIPTION_PAYMENT_STATUSES = ['in_review', 'approved', 'rejected'] as const
 export type SubscriptionPaymentStatus = (typeof SUBSCRIPTION_PAYMENT_STATUSES)[number]
@@ -53,6 +57,9 @@ export const subscriptionPayments = pgTable(
     proofMimeType: text('proof_mime_type'),
     proofSizeBytes: integer('proof_size_bytes'),
     status: text('status', { enum: SUBSCRIPTION_PAYMENT_STATUSES }).notNull().default('in_review'),
+    // What really arrived, as the console approved it (it may differ from what was reported).
+    receivedAmount: numeric('received_amount', { precision: 14, scale: 2 }),
+    receivedUsdCents: integer('received_usd_cents'),
     rejectionReason: text('rejection_reason'),
     rejectionNote: text('rejection_note'),
     reviewedBy: uuid('reviewed_by').references(() => users.id),

@@ -1,4 +1,4 @@
-import type { FastifyPluginCallback, FastifyRequest } from 'fastify'
+import type { FastifyPluginCallback, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import type { Database } from '../../db/client.ts'
 import { identityOf } from '../../http/authenticate.ts'
@@ -6,9 +6,12 @@ import { asAdmin, companyOf } from '../../http/company-scope.ts'
 import { parseInput } from '../../http/validation.ts'
 import { type SubscriptionService, assignPlanInput, choosePlanInput } from './subscription-service.ts'
 import { type SubscriptionPaymentService, reportPaymentInput } from './subscription-payment-service.ts'
+import { type SubscriptionReviewService, approvePaymentInput, receiptFile, rejectPaymentInput, reviewStatusQuery } from './subscription-review-service.ts'
+import { walletBalance, walletMovementsOf } from './wallet.ts'
 
 const tenantParams = z.object({ tenantId: z.uuid() })
 const paymentParams = z.object({ paymentId: z.uuid() })
+const tenantPaymentParams = z.object({ tenantId: z.uuid(), paymentId: z.uuid() })
 /** A receipt of up to 5 MB travels as base64 (a third larger), with the payment's data. */
 const PAYMENT_BODY_LIMIT = 8 * 1024 * 1024
 /** Shown in the panel as they are; never rendered as anything else. */
@@ -16,13 +19,25 @@ const INLINE_PROOF_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'ap
 
 export interface PlatformSubscriptionRoutesOptions {
   subscriptions: SubscriptionService
+  review: SubscriptionReviewService
+}
+
+/** A file of ours: inline when the browser can show it, downloaded otherwise; never anything else. */
+function sendFile(reply: FastifyReply, bytes: Uint8Array | Buffer, mimeType: string, fileName?: string) {
+  const inline = INLINE_PROOF_TYPES.has(mimeType)
+  return reply
+    .header('Content-Type', inline ? mimeType : 'application/octet-stream')
+    .header('Content-Disposition', `${inline ? 'inline' : 'attachment'}${fileName ? `; filename="${fileName}"` : ''}`)
+    .header('Cache-Control', 'private, no-store')
+    .header('X-Content-Type-Options', 'nosniff')
+    .send(Buffer.from(bytes))
 }
 
 /**
  * The console's side (mockup web-37): Suscripciones → Cobros, and a company's subscription on its
  * page, where a plan is assigned. Registered inside platformRoutes: its guard runs first.
  */
-export const platformSubscriptionRoutes: FastifyPluginCallback<PlatformSubscriptionRoutesOptions> = (app, { subscriptions }, done) => {
+export const platformSubscriptionRoutes: FastifyPluginCallback<PlatformSubscriptionRoutesOptions> = (app, { subscriptions, review }, done) => {
   app.get('/subscriptions', async () => ({ items: await subscriptions.list() }))
   app.get('/tenants/:tenantId/subscription', async (request) => ({
     subscription: await subscriptions.view(parseInput(tenantParams, request.params).tenantId),
@@ -31,6 +46,32 @@ export const platformSubscriptionRoutes: FastifyPluginCallback<PlatformSubscript
     const { tenantId } = parseInput(tenantParams, request.params)
     const { planId } = parseInput(assignPlanInput, request.body)
     return reply.code(201).send({ subscription: await subscriptions.assign(tenantId, planId, identityOf(request).userId) })
+  })
+
+  // Suscripciones → Pagos (mockup web-41): the payments companies report, reviewed here.
+  app.get('/subscription-payments', async (request) => ({ items: await review.list(parseInput(reviewStatusQuery, request.query).status) }))
+  app.get('/subscription-payments/pending-count', async () => ({ count: await review.pendingCount() }))
+  app.get('/subscription-payments/:paymentId', async (request) => ({ payment: await review.detail(parseInput(paymentParams, request.params).paymentId) }))
+  // Approving and rejecting name the company in the address: «Actividad en la consola» records it.
+  app.get('/tenants/:tenantId/subscription-payments/:paymentId/proof', async (request, reply) => {
+    const { tenantId, paymentId } = parseInput(tenantPaymentParams, request.params)
+    const file = await review.proof(tenantId, paymentId)
+    return sendFile(reply, file.bytes, file.mimeType)
+  })
+  app.post('/tenants/:tenantId/subscription-payments/:paymentId/approve', async (request) => {
+    const { tenantId, paymentId } = parseInput(tenantPaymentParams, request.params)
+    const { receivedAmount } = parseInput(approvePaymentInput, request.body ?? {})
+    return { payment: await review.approve(tenantId, paymentId, identityOf(request).userId, receivedAmount) }
+  })
+  app.post('/tenants/:tenantId/subscription-payments/:paymentId/reject', async (request) => {
+    const { tenantId, paymentId } = parseInput(tenantPaymentParams, request.params)
+    const { reason, note } = parseInput(rejectPaymentInput, request.body)
+    return { payment: await review.reject(tenantId, paymentId, identityOf(request).userId, reason, note) }
+  })
+  app.get('/tenants/:tenantId/subscription-payments/:paymentId/receipt', async (request, reply) => {
+    const { tenantId, paymentId } = parseInput(tenantPaymentParams, request.params)
+    const file = await review.receipt(tenantId, paymentId)
+    return sendFile(reply, file.bytes, 'application/pdf', file.fileName)
   })
   done()
 }
@@ -86,13 +127,19 @@ export const companySubscriptionRoutes: FastifyPluginCallback<CompanySubscriptio
     const { paymentId } = parseInput(paymentParams, request.params)
     await asOwnerOrAdmin(request)
     const file = await payments.proof(companyOf(request).tenantId, paymentId)
-    const inline = INLINE_PROOF_TYPES.has(file.mimeType)
-    return reply
-      .header('Content-Type', inline ? file.mimeType : 'application/octet-stream')
-      .header('Content-Disposition', inline ? 'inline' : 'attachment')
-      .header('Cache-Control', 'private, no-store')
-      .header('X-Content-Type-Options', 'nosniff')
-      .send(file.bytes)
+    return sendFile(reply, file.bytes, file.mimeType)
+  })
+  // The receipt of an approved payment, and the balance in favour with its movements (mockup web-41).
+  app.get('/subscription/payments/:paymentId/receipt', async (request, reply) => {
+    const { paymentId } = parseInput(paymentParams, request.params)
+    await asOwnerOrAdmin(request)
+    const file = await receiptFile(db, companyOf(request).tenantId, paymentId)
+    return sendFile(reply, file.bytes, 'application/pdf', file.fileName)
+  })
+  app.get('/subscription/wallet', async (request) => {
+    await asOwnerOrAdmin(request)
+    const tenantId = companyOf(request).tenantId
+    return { balanceCents: await walletBalance(db, tenantId), movements: await walletMovementsOf(db, tenantId) }
   })
   done()
 }
